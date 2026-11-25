@@ -1,0 +1,12 @@
+encos_ws/.vscode/
+encos_ws/build/
+encos_ws/install/
+encos_ws/log/
+encos_ws/logs/*
+encos_ws/!logs/.gitkeep
+encos_ws/data/*
+encos_ws/!data/.gitkeep
+encos_ws/__pycache__/
+encos_ws/*.pyc
+encos_ws/*.db3
+encos_ws*.mcap
