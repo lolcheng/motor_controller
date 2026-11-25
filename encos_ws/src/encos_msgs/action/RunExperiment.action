@@ -1,0 +1,26 @@
+uint8 HOLD=0
+uint8 STEP=1
+uint8 SINE=2
+uint8 SWEEP=3
+uint64 owner
+uint8 mode
+uint8 shape
+float64 duration_s
+# Offset and amplitude in rad or rad/s according to mode.
+float64 offset
+float64 amplitude
+float64 start_hz
+float64 end_hz
+float64 step_at_s
+float64 speed_limit_rad_s
+float64 current_limit_a
+uint8 feedback
+---
+bool success
+string detail
+uint64 samples
+---
+float64 elapsed_s
+float64 progress
+float64 target
+uint64 samples

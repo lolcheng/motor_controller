@@ -1,0 +1,9 @@
+uint8 code
+encos_msgs/ParameterValue value
+bool confirm
+---
+bool success
+bool acknowledged
+string detail
+encos_msgs/ParameterValue readback
+encos_msgs/RawFrame raw

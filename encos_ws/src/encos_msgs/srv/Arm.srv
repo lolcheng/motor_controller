@@ -1,0 +1,9 @@
+uint8 READ_ONLY=1
+uint8 TOPIC=2
+uint8 ACTION=3
+uint8 authority
+uint64 owner
+bool confirm
+---
+bool success
+string detail

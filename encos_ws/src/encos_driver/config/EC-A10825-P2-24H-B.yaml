@@ -1,0 +1,18 @@
+# P2 envelope for the synthetic model. Quantization ranges and Kt are queried.
+encos_driver:
+  ros__parameters:
+    motor_model: EC-A10825-P2-24H-B
+    joint_name: encos_joint
+    limits:
+      position_min_rad: -0.5
+      position_max_rad: 0.5
+      velocity_rad_s: 1.5
+      phase_current_a: 3.0
+      torque_nm: 4.0
+      motor_c: 65.0
+      mos_c: 65.0
+      kp: 25.0
+      kd: 2.0
+      command_age_ms: 150
+      feedback_age_ms: 350
+      run_ms: 90000

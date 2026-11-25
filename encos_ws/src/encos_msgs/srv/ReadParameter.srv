@@ -1,0 +1,7 @@
+uint8 code
+uint8 group
+---
+bool success
+string detail
+encos_msgs/ParameterValue value
+encos_msgs/RawFrame raw

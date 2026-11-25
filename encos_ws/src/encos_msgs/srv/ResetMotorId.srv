@@ -1,0 +1,4 @@
+bool confirm
+---
+bool success
+string detail

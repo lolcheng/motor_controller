@@ -1,0 +1,5 @@
+uint16 new_id
+bool confirm
+---
+bool success
+string detail

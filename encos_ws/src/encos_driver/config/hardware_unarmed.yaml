@@ -1,0 +1,5 @@
+# SocketCanTransport rejects physical interfaces before binding in P2.
+encos_driver:
+  ros__parameters:
+    can_interface: can0
+    allow_virtual_writes: false

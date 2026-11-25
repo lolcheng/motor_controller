@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>encos_driver</name><version>0.0.1</version>
+  <description>Jazzy ENCOS vcan driver and safety control thread</description>
+  <maintainer email="maintainers@example.invalid">ENCOS workspace maintainers</maintainer><license>UNLICENSED</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>encos_core</depend><depend>encos_msgs</depend><depend>encos_experiments</depend>
+  <depend>rclcpp</depend><depend>rclcpp_action</depend><depend>sensor_msgs</depend><depend>rcl_interfaces</depend>
+  <exec_depend>encos_tools</exec_depend><exec_depend>launch_ros</exec_depend><exec_depend>rosbag2</exec_depend>
+  <test_depend>rclpy</test_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

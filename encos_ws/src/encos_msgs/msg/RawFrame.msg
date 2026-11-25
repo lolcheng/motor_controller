@@ -1,0 +1,14 @@
+std_msgs/Header header
+uint32 id
+bool fd
+bool brs
+bool esi
+bool extended
+bool rtr
+bool error
+uint8 length
+uint8[64] data
+uint8 origin
+int64 host_mono_ns
+bool kernel_realtime_valid
+int64 kernel_realtime_ns

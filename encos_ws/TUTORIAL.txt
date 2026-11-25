@@ -1,0 +1,269 @@
+ENCOS 二代关节电机工程 | P0–P2 编译与验证
+==========================================
+
+适用环境为 Ubuntu 24.04、ROS 2 Jazzy、C++17 和 Bash。
+以下查询、写入、控制及故障演示只用 Linux vcan 和虚拟电机。当前驱动
+只接受内核识别为 vcan 的接口。验收范围和原始证据见 docs/reports/P2.md。
+
+1. 准备依赖和编译
+------------------
+
+从工程根目录运行下列命令。已安装依赖时可直接开始编译。如需补装，由
+管理员手动执行以下命令。假定 ROS 2 Jazzy 的 apt 软件源已配置。
+
+  sudo apt install build-essential cmake python3-colcon-common-extensions \
+    iproute2 can-utils ripgrep ros-jazzy-ros-base ros-jazzy-rosbag2 \
+    ros-jazzy-rosbag2-storage-default-plugins ros-jazzy-rosidl-default-generators
+
+只验证 P0 时，可在没有 ROS 和 vcan 的 Bash 中运行。预期 CTest 8/8 通过。
+
+  bash scripts/run_offline_tests.sh
+
+在新的 Bash 中加载 Jazzy，再构建全部五个包。
+
+  source /opt/ros/jazzy/setup.bash
+  colcon build --base-paths src --build-base build/p2 --install-base install/p2 \
+    --packages-select encos_core encos_msgs encos_tools encos_experiments encos_driver \
+    --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON
+  source install/p2/local_setup.bash
+
+确认构建输出报告五个包完成。检查本工作区的可执行程序和消息定义。
+
+  ros2 pkg executables encos_driver
+  ros2 pkg executables encos_tools
+  ros2 pkg executables encos_experiments
+  ros2 interface show encos_msgs/msg/MotorCommand
+
+2. 自动验证 P0、P1、P2
+-----------------------
+
+在已加载 Jazzy 和本工作区的终端，从根目录运行。命令在独立用户和网络
+命名空间中建立 vcan0，自动启动测试所需进程，最后删除该命名空间中
+的 vcan0。执行时无需在其它终端启动驱动或虚拟电机。
+
+  unshare --user --map-root-user --net bash -ec '
+    ip link set lo up
+    scripts/setup_vcan.sh ensure vcan0
+    trap "scripts/setup_vcan.sh clean vcan0" EXIT
+    export ROS_DOMAIN_ID=111 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+    export ENCOS_TEST_VCAN=vcan0 ENCOS_TEST_ADMIN=1
+    export ENCOS_P2_LOGS="$PWD/logs/tutorial/ros-integration"
+    colcon test --base-paths src --build-base build/p2 --install-base install/p2 \
+      --event-handlers console_direct+ --return-code-on-test-failure
+    colcon test-result --test-result-base build/p2 --verbose
+    scripts/test_vcan_processes.sh install/p2/encos_tools/lib/encos_tools \
+      logs/tutorial/p1-processes vcan0
+  '
+
+预期结果
+
+  P0  8 项。原始报文、位域和缩放、反馈有效性、参数编码、非法帧、
+      过期事务及安全状态机等测试通过。
+  P1  2 项。虚拟电机模型与经典 CAN、CAN FD+BRS 的 SocketCAN 集成通过。
+      独立进程脚本在两种帧型下验证查询、受限位置、故障退出及重启。
+      脚本中的 “Killed” 来自故意终止虚拟电机的用例，查看随后 PASS。
+  P2  3 项。ROS 消息映射、轨迹及两种帧型的端到端测试通过。覆盖已确认
+      的控制模式、查询与写入/读回、超时、丢帧、温度、UUID、故障锁存、
+      Action 取消及驱动退出。具体进程日志保存在 logs/tutorial/ 下。
+  汇总应为 13 tests, 0 errors, 0 failures, 0 skipped。
+
+若 unshare 或 vcan 初始化失败，请保留错误输出。系统未允许创建私有用户
+命名空间时，可由管理员准备仅供本次测试的 vcan0，再直接在同一 Bash
+中设置上面的 ROS_DOMAIN_ID、ROS_AUTOMATIC_DISCOVERY_RANGE、
+ENCOS_TEST_VCAN、ENCOS_P2_LOGS，执行 colcon 和独立进程测试命令。
+ENCOS_TEST_ADMIN=1 仅用于允许关停该专用接口的有权限测试 shell。
+没有可用 vcan 时，可执行第 1 节的离线测试，虚拟链路验收待补。
+
+3. 多终端启动和观察
+---------------------
+
+使用多个普通终端时，先由操作者在这些终端共享的网络命名空间准备本次
+演示专用的 vcan0。若接口已经由管理员创建，直接执行 check 即可。
+
+  sudo modprobe vcan
+  sudo scripts/setup_vcan.sh ensure vcan0
+  scripts/setup_vcan.sh check vcan0
+
+每个终端都从工程根目录运行以下四行。
+
+  source /opt/ros/jazzy/setup.bash
+  source install/p2/local_setup.bash
+  export ROS_DOMAIN_ID=112
+  export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+
+终端 A 启动驱动和单个虚拟电机。正常启动时驱动处于 UNARMED。
+
+  ros2 launch encos_driver vcan.launch.py interface:=vcan0 fd:=true frequency:=400 raw:=true
+
+经典 CAN 把 fd:=true 改为 fd:=false。若要把两个进程分开，在驱动的
+launch 命令加 virtual_motor:=false，然后在另一终端运行以下命令。
+驱动用 fd:=false 时，虚拟电机参数也改为 classic。
+
+  ros2 run encos_tools encos_virtual_motor vcan0 fd --bootstrap-beacon
+
+终端 B 抓包。没有 candump 时，可用下面自带的观察器。
+
+  candump -L -x vcan0
+
+  ros2 run encos_tools encos_bus_monitor vcan0 fd
+
+终端 C 查询。终端 B 应看到 ID 0x7FF 的请求 FF FF 00 82 和回复
+FF FF 01 00 01。FD+BRS 帧在紧凑格式中使用“##”，其后的标志位
+包含 BRS 位 0x1。ROS 原始帧也应显示 brs: true。
+
+  ros2 service call /encos/discover_motor encos_msgs/srv/DiscoverMotor '{}'
+  ros2 service call /encos/get_profile encos_msgs/srv/GetProfile '{}'
+  ros2 service call /encos/read_parameter encos_msgs/srv/ReadParameter '{code: 29}'
+  ros2 service call /encos/read_parameter encos_msgs/srv/ReadParameter '{code: 36, group: 2}'
+
+  ros2 topic echo --once --no-daemon --qos-reliability best_effort \
+    /encos/motor_state encos_msgs/msg/MotorState
+  ros2 topic echo --once --timeout 5 --no-daemon --qos-reliability best_effort \
+    /encos/raw_rx encos_msgs/msg/RawFrame
+
+/encos/raw_rx 只在有报文时发布。可先让 echo 等候，再从其它终端发查询。
+若 5 秒内没有看到原始帧，先确认 raw:=true，再重试。
+发现结果预期 success=True、motor_id=1。查询 29 返回 UUID，查询 36 返回
+指定的 Kt 组。观察到反馈时，只有 valid 为 true 的测量字段可以使用。
+
+4. 验证 Topic、Action、写入保护和故障恢复
+------------------------------------------
+
+若要同时保存数据，请先按第 5 节启动记录。下面各控制示例逐条执行。
+前一个任务停发后，等 GetProfile 的 state.safety_state 回到 UNARMED
+（值 1），再开始下一项。
+
+4.1 用 Topic 控制位置、速度和混控
+
+  ros2 run encos_experiments virtual_control.py position 0.10 \
+    --owner 7 --seconds 2 --arm-virtual --stop-on-exit
+  ros2 run encos_experiments virtual_control.py velocity 0.10 \
+    --owner 7 --seconds 1 --arm-virtual --stop-on-exit
+  ros2 run encos_experiments virtual_control.py mixed 0.05 \
+    --owner 7 --seconds 1 --arm-virtual --stop-on-exit
+
+控制脚本先显式申请软件授权，再发布带时间戳的有限序列，结束时调用 Stop。
+位置和速度参数分别使用 rad 和 rad/s。在另一个终端运行下列命令观察
+归属、反馈类型、时间戳和采样速率。hz 在空闲时无控制样本，应在控制前
+就启动并观察运行区间。
+
+  ros2 topic echo --once --no-daemon --qos-reliability reliable \
+    /encos/control_sample encos_msgs/msg/ControlSample
+  ros2 topic hz /encos/control_sample --spin-time 2
+
+4.2 有限 Action 和取消
+
+在终端 C 先授权，再提交正弦位置目标。等待完成可看到 SUCCEEDED。
+若要验证取消，看到 Goal accepted 和连续进度后，在另一个终端立即执行
+最后一条命令。每个新任务都重新申请授权。
+
+  ros2 service call /encos/arm encos_msgs/srv/Arm '{authority: 3, owner: 7, confirm: true}'
+  ros2 action send_goal --feedback /encos/run_experiment encos_msgs/action/RunExperiment \
+    '{owner: 7, mode: 1, shape: 2, duration_s: 6.0, offset: 0.0, amplitude: 0.04, start_hz: 1.0, speed_limit_rad_s: 0.6, current_limit_a: 1.0, feedback: 1}'
+
+  ros2 service call /encos/run_experiment/_action/cancel_goal action_msgs/srv/CancelGoal '{}'
+
+预期取消回应列出 goals_canceling，终端 C 显示 CANCELED。shape 的 0、1、
+2、3 分别为保持、阶跃、正弦和线性扫频。mode 为 1 时运行位置轨迹，
+为 2 时运行速度轨迹。Action 的完整轨迹测试随第 2 节运行。
+
+4.3 只在虚拟端验证写入和其它模式
+
+默认启动时 WriteParameter 即使收到 confirm: true 也应拒绝。使用 Stop
+并确认虚拟电机已停止，关闭终端 A 的 launch，再用下列命令重新启动。
+如用独立虚拟电机，保持同一帧型，并且只运行一个虚拟电机进程。
+
+  ros2 launch encos_driver vcan.launch.py interface:=vcan0 fd:=true frequency:=400 \
+    raw:=true allow_writes:=true additional_virtual_modes:=true
+
+回到控制终端，逐项测试写入、读回及短时电流模式。
+
+  ros2 service call /encos/write_parameter encos_msgs/srv/WriteParameter \
+    '{code: 11, value: {kind: 1, values: [480.0, 0.0, 0.0, 0.0]}, confirm: true}'
+  ros2 service call /encos/read_parameter encos_msgs/srv/ReadParameter '{code: 31}'
+  ros2 run encos_experiments virtual_control.py current 0.03 \
+    --owner 8 --seconds 0.2 --arm-virtual --stop-on-exit
+
+预期写入回应同时报告 success=True 和 acknowledged=True，读回首个
+数值为 480 ms。第 2 节还验证 ID、零点、抱闸、范围、PID、Kt，以及
+力矩、变阻尼、能耗、再生、电磁抱闸模式。加速度和通信模式写入仍封锁。
+
+4.4 故意让目标过期
+
+待虚拟电机回到 UNARMED，使用下面命令只发一次有效期 100 ms 的目标。
+驱动可以在这 100 ms 内采样同一目标，过期后停止并锁存故障。
+
+  ros2 service call /encos/arm encos_msgs/srv/Arm '{authority: 2, owner: 7, confirm: true}'
+  ros2 topic pub --once --qos-reliability best_effort /encos/motor_command encos_msgs/msg/MotorCommand \
+    '{header: auto, valid_for: {nanosec: 100000000}, motor_id: 1, owner: 7, mode: 1, position_rad: 0.05, speed_limit_rad_s: 0.5, current_limit_a: 1.0, feedback: 2}'
+  ros2 topic echo --once --timeout 5 --no-daemon --qos-reliability reliable \
+    --qos-durability transient_local --filter 'm.latched and m.safety_state == 6' \
+    /encos/fault encos_msgs/msg/MotorFault
+
+预期 latched: true、safety_state: 6。复位后控制权仍为空，需要重新授权。
+
+  ros2 service call /encos/reset_fault encos_msgs/srv/ResetFault '{confirm: true}'
+  ros2 service call /encos/get_profile encos_msgs/srv/GetProfile '{}'
+
+5. rosbag2、CSV 和关闭
+-----------------------
+
+在一个已加载环境的额外终端，从根目录启动记录。在 ROS 发现并订阅
+/encos/control_sample 后，再运行第 4 节中任一正常 Topic 或 Action。
+下面使用新目录，重复运行时更换后缀。
+
+  mkdir -p logs/tutorial
+  ros2 launch encos_driver record.launch.py output:=logs/tutorial/demo_bag_01
+
+在控制终端调用 Stop，检查虚拟电机已停。已经在故障状态时，Stop 保留
+锁存，仍须按第 4.4 节显式复位。Stop 是软件停发操作。
+
+  ros2 service call /encos/stop encos_msgs/srv/Stop '{}'
+  ros2 service call /encos/get_profile encos_msgs/srv/GetProfile '{}'
+
+到录包终端按 Ctrl+C，等 rosbag2 写完缓存并退出。然后验证统计与导出。
+
+  ros2 bag info logs/tutorial/demo_bag_01
+  ros2 run encos_experiments export_samples.py \
+    logs/tutorial/demo_bag_01 logs/tutorial/demo_01.csv
+  ros2 run encos_experiments analyze_timing.py logs/tutorial/demo_01.csv --hz 400
+
+bag 中 /encos/control_sample 的消息数应大于零，并与导出的样本数一致。
+CSV 每行是一条样本。看实际间隔可用 previous_cycle_interval_ns，作
+延迟和抖动比较时使用同一单调时钟的字段。解析缺失值时查看对应
+*_valid。相电流单位为 A，输出力矩字段为估算值，单位为 Nm。
+
+最后 Ctrl+C 关闭观察器、驱动和虚拟电机。若第 3 节是你创建的专用
+vcan0，退出所有进程后由创建者手动删除。
+
+  sudo scripts/setup_vcan.sh clean vcan0
+
+6. 可选性能复验
+---------------
+
+退出第 3 节启动的所有节点后，再在工作区根目录从已加载环境的 Bash
+运行。测试脚本会自己启动专用虚拟电机和驱动。下例分别复验经典 CAN 的
+50 Hz C 工况和 FD+BRS 的 50 Hz D 工况，检查 bag 样本无缺失。
+
+  unshare --user --map-root-user --net bash -ec '
+    ip link set lo up
+    scripts/setup_vcan.sh ensure vcan0
+    trap "scripts/setup_vcan.sh clean vcan0" EXIT
+    export ROS_DOMAIN_ID=113 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST ENCOS_TEST_VCAN=vcan0
+    /usr/bin/python3 tests/integration/run_p2_performance.py \
+      classic logs/tutorial/perf_classic_01 --rates 50 --scenarios C
+    /usr/bin/python3 tests/integration/run_p2_performance.py \
+      fd logs/tutorial/perf_fd_01 --rates 50 --scenarios D
+  '
+
+脚本要求输出目录尚不存在。去掉 --rates 和 --scenarios 会按每种帧型
+运行 10、50、100、200、400 Hz 的全部 A–E 工况。400 Hz 每况预定 61 秒。
+查看 summary.json 的 status、feedback_hz、timeouts 和 bag_missing_samples。
+samples.csv、source.csv 和 bag_samples.csv 保存逐条数据，按工况生成。
+如需复验纯 SocketCAN 性能，可在同样的专用 vcan shell 中运行：
+
+  scripts/run_vcan_benchmark.sh install/p2/encos_tools/lib/encos_tools \
+    logs/tutorial/p1_benchmark_01 vcan0
+
+P1 基准涵盖 10–1000 Hz。vcan 的频率、RTT 和抖动只反映本机虚拟链路。
+性能验收和 ASan/UBSan 复验的命令、参数及历史失败记录见 docs/reports/P2.md。

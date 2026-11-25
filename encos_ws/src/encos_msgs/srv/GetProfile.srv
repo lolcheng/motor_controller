@@ -1,0 +1,5 @@
+---
+bool success
+string detail
+encos_msgs/MotorProfile profile
+encos_msgs/MotorState state

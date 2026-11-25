@@ -1,0 +1,5 @@
+---
+bool success
+string detail
+uint16 motor_id
+encos_msgs/RawFrame raw

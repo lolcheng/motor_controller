@@ -1,0 +1,6 @@
+bool release
+bool electromagnetic
+bool confirm
+---
+bool success
+string detail
