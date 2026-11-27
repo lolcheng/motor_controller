@@ -1,98 +1,69 @@
-# ENCOS Gen 2 单电机驱动
+# ENCOS Gen 2 单电机通信
 
-目标为 Ubuntu 24.04、ROS 2 Jazzy、C++17、Linux SocketCAN，型号 EC-A10825-P2-24H-B。P0 提供独立 C++ 核心，P1 提供仅限 vcan 的 SocketCAN、虚拟电机、调试工具和性能测量。P2 增加 ROS 2 控制、配置、Action 和数据记录。阶段结果见 [P0 报告](docs/reports/P0.md)、[P1 报告](docs/reports/P1.md) 和 [P2 报告](docs/reports/P2.md)。
+目标设备为 EC-A10825-P2-24H-B，环境为 Ubuntu 24.04、C++17 和 ROS 2 Jazzy。
+实际收发走 USB‑CAN 串口。独立 C++ 命令行可持续接收并解码 CAN 反馈，
+也可手动发送位置、速度、参数查询等已定义的指令。
+ROS 2 节点按需发布原始帧和电机状态。
 
-## ROS 2 Jazzy 使用
-
-ROS 2 的依赖、构建、多终端命令和录包导出，见 [P2 操作指南](docs/ros2_p2.md)。以下保留 P0/P1 独立工具的运行方式。
-
-## 构建和测试
+## 快速开始
 
 ```bash
-bash scripts/run_offline_tests.sh
-
 source /opt/ros/jazzy/setup.bash
-colcon build --base-paths src/encos_core src/encos_tools \
-  --packages-select encos_core encos_tools --build-base build/p1-colcon \
-  --install-base install/p1-colcon --cmake-args -DBUILD_TESTING=ON
+colcon --log-base build/colcon-build-log build --base-paths src \
+  --build-base build/usb --install-base install/usb \
+  --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON
+source install/usb/local_setup.bash
+
+ros2 run encos_tools encos_usb_can --help
 ```
 
-### 用独立网络命名空间运行 P1 测试
+不带子命令启动持续会话。
 
 ```bash
-unshare --user --map-root-user --net bash -ec '
-  scripts/setup_vcan.sh ensure vcan0
-  trap "scripts/setup_vcan.sh clean vcan0" EXIT
-  export ENCOS_TEST_VCAN=vcan0 ENCOS_TEST_ADMIN=1
-  colcon test --base-paths src/encos_core src/encos_tools \
-    --packages-select encos_core encos_tools --build-base build/p1-colcon \
-    --install-base install/p1-colcon
-  colcon test-result --test-result-base build/p1-colcon --verbose
-  scripts/test_vcan_processes.sh install/p1-colcon/encos_tools/lib/encos_tools logs/p1/processes-local vcan0
-'
+ros2 run encos_tools encos_usb_can /dev/ttyUSB0
 ```
 
-`setup_vcan.sh` 支持 `check`、`ensure` 和 `clean`，默认动作是检查 `vcan0`。脚本检查 Linux 设备类型和 MTU 72，重复初始化或清理同一虚拟接口可直接执行。如果系统禁止无特权用户命名空间，或者 vcan 模块未加载且不能自动加载，请由管理员提供专用 vcan 接口。普通 CTest 在没有默认 vcan 时会将集成项标记跳过。设置 `ENCOS_TEST_VCAN` 后，指定接口不可用会直接报错。`ENCOS_TEST_ADMIN` 仅供有权限的私有测试命名空间注入接口关闭。
+启动后立即读串口，空闲时照常打印 `RX`。输入 `DISCOVER`、`QUERY 1 VERSION`
+或 `POS 1 30` 并回车，每行发一帧。输入 `EXIT` 退出。只需单次发送时，
+也可把命令直接接在设备路径后，如 `encos_usb_can /dev/ttyUSB0 POS 1 30`。
+单次发送结束后串口关闭，需要持续收反馈时使用会话。
 
-### 多终端演示
+`POS 1 30` 对应 `001#283E00000032002A`，默认 20 rpm、1 A、应答类型 2。
+连接电机时，操作员确认单条命令会立即送到总线。真机接线、上电和运动验收按
+AGENTS.md 执行。手册未给出独立的 `ENABLE` CAN 帧。
 
-先由操作者在共享的网络命名空间准备只供本次测试的 `vcan0`。具有管理员授权时可人工运行：
+使用独立 CMake 构建时可直接运行 CLI，无需 ROS 2。串口设置为 115200、8N1、
+无流控。分析仪发送 ID 1、DLC 8 的全零测试帧时，终端会显示原始帧。
+只有可解码或经查询匹配的 ENCOS 反馈才会提供电机状态。
+
+需要 ROS 2 时，关闭持续会话，再用下面的节点占用串口：
 
 ```bash
-sudo modprobe vcan
-sudo scripts/setup_vcan.sh ensure vcan0
-scripts/setup_vcan.sh check vcan0
+ros2 run encos_driver encos_usb_can_node --ros-args -p device:=/dev/ttyUSB0
 ```
 
-三个终端均从工作区根目录运行。先启动终端一的虚拟电机和终端三的抓包，看到虚拟电机输出 `ready` 后，再在终端二发指令。第一个终端启动虚拟电机：
+节点默认只监听，发布 `/encos/raw_rx` 和 `/encos/motor_state`。
+给节点设置 `allow_queries:=true` 可开放 ID 和参数查询服务。CLI 也保留
+带应答匹配和超时的单次只读查询用法。
 
 ```bash
-install/p1-colcon/encos_tools/lib/encos_tools/encos_virtual_motor vcan0 fd --idle-beacon
+ros2 run encos_tools encos_usb_can /dev/ttyUSB0 QUERY 1 VERSION --allow-query
 ```
 
-第二个终端发出 ID、UUID 查询及一次位置指令：
+## 包与验证
 
-```bash
-tools_dir=install/p1-colcon/encos_tools/lib/encos_tools
-"$tools_dir/encos_cli" vcan0 fd discover
-"$tools_dir/encos_cli" vcan0 fd query 29
-"$tools_dir/encos_cli" vcan0 fd position 0.10 --arm-virtual
-```
+- **encos_core** 提供 ENCOS 编解码、串口包封装、事务匹配和离线安全单测。
+- **encos_tools** 提供独立 USB‑CAN 命令行。
+- **encos_msgs** 定义原始帧、反馈、查询及实验接口。
+- **encos_driver** 提供 USB‑CAN 只读 ROS 节点和录包 launch。
+- **encos_experiments** 提供轨迹库、bag 导出和通信时序分析。
 
-第三个终端用系统 `can-utils` 的 `candump` 观察：
+Action 消息和轨迹库保留供后续控制使用。当前节点提供监听与只读服务；
+录包和接收频率分析可以直接用于实际分析仪的数据。用
+`bash scripts/run_offline_tests.sh` 运行不依赖 ROS 的 C++ 协议和串口伪终端测试。
+Jazzy 回归也使用伪终端，不需要真机或分析仪。分析仪已验证实物模块的双向
+标准帧转发，真实电机回复、实际运动和 CAN FD+BRS 仍待现场验收。
 
-```bash
-candump -t a -x vcan0
-```
+完整命令对照和分析仪收发 demo 见教程第 2.5、2.6 节。
 
-也可使用自带观察器：
-
-```bash
-install/p1-colcon/encos_tools/lib/encos_tools/encos_bus_monitor vcan0 fd
-```
-
-经典 CAN 演示将前两个终端的 `fd` 改成 `classic`，观察器可以继续用 `fd` 同时识别两种格式。ID 查询应看到 `7FF#FFFF0082` 及 `7FF#FFFF010001`。FD+BRS 的标志在扩展输出中可见。参数查询码用十进制，查询 Kt 组的示例为 `query 36 2`。`--idle-beacon` 是提供初始反馈的模拟选项，默认虚拟设备只做问答。退出工具后，由创建接口的操作者运行 `sudo scripts/setup_vcan.sh clean vcan0`。
-
-### 故障注入和性能
-
-在虚拟电机命令后追加 `--fault NAME`，可重复指定。选项包括 `silent`、`drop:3`、`delay:45`（毫秒）、`wrong-id`、`length`、`type`、`duplicate`、`uuid-missing`、`uuid-reverse`、`motor:2`、`hot` 和 `reject-writes`。测试用的退出及自动清理见 `scripts/test_vcan_processes.sh`。
-
-在独立 vcan 总线上运行基准，不另启动虚拟电机。脚本为每个频率启动一个无异常注入的独立进程：
-
-```bash
-unshare --user --map-root-user --net bash -ec '
-  scripts/setup_vcan.sh ensure vcan0
-  trap "scripts/setup_vcan.sh clean vcan0" EXIT
-  scripts/run_vcan_benchmark.sh install/p1-colcon/encos_tools/lib/encos_tools logs/p1/performance-local vcan0
-'
-```
-
-输出包含逐周期 CSV、各频率摘要和虚拟电机进程日志。高频用例要求专用、无重复反馈的虚拟端点，失败后停发。vcan 不模拟经典 CAN/FD 仲裁、线路速率或电机控制器时序。
-
-## 工程边界
-
-- `encos_core` 是纯 C++ 协议、传输、事务与安全基础库。
-- `encos_tools` 运行虚拟电机、调试 CLI、监视和性能测量。P1 的 SocketCAN 只绑定经内核核验为 `vcan` 的接口。
-- ROS 消息和节点已提供，实机空载实验遵循 [验收门槛](docs/acceptance.md)，需要单独批准。调试手册印刷 p.4 和产品数据手册 p.30 的供电数值冲突，现场上电前须以厂商对具体型号和固件的书面确认作为依据。
-
-两份官方原稿、逐项协议和遗留疑点见 [厂商资料](docs/vendor/README.md)、[协议覆盖](docs/protocol_coverage.md) 和 [待确认事项](docs/open_issues.md)。
+[操作教程](TUTORIAL.txt) · [目录树](STRUCTURE.txt) · [协议覆盖](docs/protocol_coverage.md)

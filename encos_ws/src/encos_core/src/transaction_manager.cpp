@@ -102,8 +102,8 @@ bool rejected(const Feedback& feedback, const CanFrame& response, const CanFrame
 
 }  // namespace
 
-TransactionManager::TransactionManager(std::optional<std::chrono::milliseconds> lifetime, ReplyReuse reuse)
-    : reply_lifetime_(lifetime), reuse_(reuse) {
+TransactionManager::TransactionManager(std::optional<std::chrono::milliseconds> lifetime)
+    : reply_lifetime_(lifetime) {
   if (lifetime && (*lifetime <= std::chrono::milliseconds::zero() || *lifetime > max_clock_ms)) {
     throw std::invalid_argument("reply lifetime must be positive");
   }
@@ -210,12 +210,7 @@ TransactionEvent TransactionManager::finish(State result, std::optional<Decoded>
   if (reply_lifetime_) {
     expires = pending_->sent + *reply_lifetime_;
   }
-  // A dedicated fault-free emulator can promise exactly one telemetry reply.
-  // Any failed transaction remains subject to the original quarantine.
-  if (reuse_ != ReplyReuse::single_reply_simulation || result != State::completed ||
-      pending_->command.reply.kind != ReplyKind::telemetry) {
-    retired_.push_back({pending_->command.reply, expires});
-  }
+  retired_.push_back({pending_->command.reply, expires});
   pending_.reset();
   return {result, decoded, uuid};
 }

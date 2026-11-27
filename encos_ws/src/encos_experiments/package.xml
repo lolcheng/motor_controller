@@ -4,6 +4,6 @@
   <description>Bounded trajectories and offline analysis for ENCOS</description>
   <maintainer email="maintainers@example.invalid">ENCOS workspace maintainers</maintainer><license>UNLICENSED</license>
   <buildtool_depend>ament_cmake</buildtool_depend>
-  <depend>encos_msgs</depend><depend>rclcpp</depend><exec_depend>rosbag2_py</exec_depend><exec_depend>rclpy</exec_depend>
+  <exec_depend>encos_msgs</exec_depend><exec_depend>rosbag2_py</exec_depend><exec_depend>rclpy</exec_depend>
   <export><build_type>ament_cmake</build_type></export>
 </package>

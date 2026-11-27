@@ -1,7 +1,0 @@
-encos_driver:
-  ros__parameters:
-    safety_feedback_ms: 100
-    limits:
-      command_age_ms: 150
-      feedback_age_ms: 350
-      run_ms: 90000

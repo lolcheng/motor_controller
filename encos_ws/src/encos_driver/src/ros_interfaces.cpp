@@ -101,7 +101,6 @@ msg::RawFrame raw_message(const CanFrame& frame, TimePoint time, const ReceivedF
 
 msg::MotorState state_message(std::uint16_t id, const Telemetry* f, const ReceivedFrame* sample) {
   msg::MotorState state;
-  state.virtual_device = true;
   state.motor_id = id;
   state.position_rad = state.velocity_rad_s = state.phase_current_a = state.estimated_torque_nm =
       state.motor_temperature_c = state.mos_temperature_c = nan;
@@ -133,28 +132,4 @@ msg::MotorState state_message(std::uint16_t id, const Telemetry* f, const Receiv
   return state;
 }
 
-msg::MotorProfile profile_message(const VerifiedMotor& motor) {
-  msg::MotorProfile result;
-  result.motor_id = motor.id;
-  result.virtual_device = true;
-  result.verified = motor.ready();
-  result.fd_brs = motor.format == WireFormat::fd_brs;
-  result.timeout_ms = motor.timeout_ms;
-  result.brake_present = motor.brake_present.value_or(false);
-  result.brake_released = motor.brake_state == BrakeState::released;
-  result.kt_nm_per_a = motor.protocol.kt_nm_per_a.value_or(nan);
-  result.query35_raw = static_cast<std::uint8_t>(motor.protocol.query35_raw.value_or(0));
-  result.ranges.fill(nan);
-  if (motor.version) {
-    result.hardware_version = motor.version->hardware;
-    result.software_version = motor.version->software;
-  }
-  if (motor.protocol.mixed && motor.protocol.feedback1) {
-    const auto& m = *motor.protocol.mixed;
-    const auto& f = *motor.protocol.feedback1;
-    result.ranges = {m.kp.min, m.kp.max, m.kd.min, m.kd.max, m.position_rad.min, m.position_rad.max,
-      m.velocity_rad_s.min, m.velocity_rad_s.max, m.torque_nm.min, m.torque_nm.max, f.phase_current_a.min, f.phase_current_a.max};
-  }
-  return result;
-}
 }  // namespace encos::driver

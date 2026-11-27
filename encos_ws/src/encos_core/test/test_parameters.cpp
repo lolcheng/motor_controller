@@ -7,6 +7,13 @@ using Q = QueryCode;
 int main() {
   const Protocol p;
   const auto cfg = [&](C code, ConfigValue value) { return p.configure(id, code, value, offline); };
+  // Vendor §9.2.1 pp.29–30: derive the first byte from the mode, reserved bits and ACK=1.
+  const auto acceleration = cfg(C::acceleration, Scalar{20});
+  bytes(acceleration, id, {0xc1, 0x01, 0x07, 0xd0});
+  bytes(cfg(C::acceleration, Scalar{0}), id, {0xc1, 0x01, 0x00, 0x00});
+  bytes(cfg(C::acceleration, Scalar{12.34}), id, {0xc1, 0x01, 0x04, 0xd2});
+  CHECK(acceleration.reply.kind == ReplyKind::config && acceleration.reply.code == 1);
+
   // Vendor §9.2.2–§9.2.16, pp.30–37. p.32's position example has a wrong negative word.
   bytes(cfg(C::communication, Enumeration{1}), id, {0xc1, 2, 1});
   bytes(cfg(C::communication, Enumeration{0}), id, {0xc1, 2, 0});
@@ -45,7 +52,9 @@ int main() {
       throws(CodecIssue::unsupported, [&] { p.query(id, q); });
     }
   }
-  throws(CodecIssue::ambiguous, [&] { cfg(C::acceleration, Scalar{20}); });
+  throws(CodecIssue::value, [&] { cfg(C::acceleration, Scalar{-0.01}); });
+  throws(CodecIssue::value, [&] { cfg(C::acceleration, Scalar{20.01}); });
+  throws(CodecIssue::value, [&] { cfg(C::acceleration, Scalar{inf}); });
   throws(CodecIssue::unsupported, [&] { cfg(C::communication, Enumeration{2}); });
   throws(CodecIssue::unsupported, [&] { cfg(C::kt_calibration, Enumeration{3}); });
   throws(CodecIssue::unsupported, [&] { cfg(static_cast<C>(3), Scalar{1}); });

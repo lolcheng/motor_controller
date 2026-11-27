@@ -1,11 +1,7 @@
 #include "encos_driver/ros_interfaces.hpp"
-#include "encos_driver/sample_recorder.hpp"
-
-#include <atomic>
 #include <cmath>
 #include <iostream>
 #include <limits>
-#include <thread>
 
 using namespace encos;
 using namespace encos::driver;
@@ -41,25 +37,5 @@ int main() {
   } catch (const CodecError&) {
   }
 
-  SampleQueue<int, 17> queue;
-  for (int i = 0; i < 16; ++i) if (!queue.push(i)) return 5;
-  if (queue.push(16)) return 6;
-  for (int i = 0; i < 16; ++i) if (queue.take() != i) return 7;
-  if (queue.take()) return 8;
-  constexpr int count = 50000;
-  std::thread producer([&] {
-    for (int i = 0; i < count; ++i) while (!queue.push(i)) std::this_thread::yield();
-  });
-  bool ordered = true;
-  for (int i = 0; i < count; ++i) {
-    auto value = queue.take();
-    while (!value) {
-      std::this_thread::yield();
-      value = queue.take();
-    }
-    ordered = ordered && *value == i;
-  }
-  producer.join();
-  if (!ordered) return 9;
-  std::cout << "ROS mapping, vendor frame, missing values, typed payload and 50000 concurrent samples PASS\n";
+  std::cout << "ROS mapping, vendor frame, missing values and typed payload PASS\n";
 }

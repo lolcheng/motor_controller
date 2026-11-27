@@ -156,14 +156,17 @@ Encoded Protocol::configure(std::uint16_t id, ConfigCode code, const ConfigValue
   if (!spec) {
     throw CodecError(CodecIssue::unsupported, "reserved configuration code");
   }
-  if (code == ConfigCode::acceleration) {
-    throw CodecError(CodecIssue::ambiguous, "acceleration ACK selector disagrees with vendor example");
-  }
+  const bool acceleration = code == ConfigCode::acceleration;
   auto f = frame(id, static_cast<std::uint8_t>(2 + payload_size(spec->payload)));
-  f.data[0] = code == ConfigCode::communication ? 0xc1 : 0xc0;
+  // §9.2.1 explicitly defines the echo for ACK=1. Its ACK=0 example does not specify a reply.
+  f.data[0] = (acceleration || code == ConfigCode::communication) ? 0xc1 : 0xc0;
   f.data[1] = static_cast<std::uint8_t>(code);
   if (const auto* scalar = std::get_if<Scalar>(&value); scalar && spec->payload == Payload::scalar16) {
-    set_parameter(f, 2, scalar->value, spec->first);
+    if (acceleration) {
+      set_u16(f, 2, wire::fixed(scalar->value, spec->first.scale, 0, 2000));
+    } else {
+      set_parameter(f, 2, scalar->value, spec->first);
+    }
   } else if (const auto* pair = std::get_if<Pair>(&value); pair && spec->payload == Payload::pair16) {
     set_parameter(f, 2, pair->first, spec->first);
     set_parameter(f, 4, pair->second, spec->second);

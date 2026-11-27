@@ -1,37 +1,19 @@
 cmake_minimum_required(VERSION 3.16)
 project(encos_tools VERSION 0.0.1 LANGUAGES CXX)
 
+find_package(encos_core CONFIG REQUIRED)
+add_executable(encos_usb_can src/usb_can.cpp src/cli_commands.cpp)
+target_link_libraries(encos_usb_can PRIVATE encos_core::encos_core)
+target_compile_options(encos_usb_can PRIVATE -Wall -Wextra -Wpedantic)
+install(TARGETS encos_usb_can RUNTIME DESTINATION lib/${PROJECT_NAME})
+
 include(CTest)
-find_package(Threads REQUIRED)
-if(NOT TARGET encos_core::encos_core)
-  find_package(encos_core CONFIG REQUIRED)
-endif()
-
-add_library(encos_virtual_model STATIC src/virtual_motor_model.cpp)
-target_include_directories(encos_virtual_model PUBLIC include)
-target_link_libraries(encos_virtual_model PUBLIC encos_core::encos_core)
-target_compile_options(encos_virtual_model PRIVATE -Wall -Wextra -Wpedantic)
-
-foreach(tool IN ITEMS virtual_motor encos_cli bus_monitor latency_benchmark)
-  if(tool STREQUAL "encos_cli")
-    set(target encos_cli)
-  else()
-    set(target encos_${tool})
-  endif()
-  add_executable(${target} src/${tool}.cpp)
-  target_link_libraries(${target} PRIVATE encos_virtual_model Threads::Threads)
-  target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
-  install(TARGETS ${target} RUNTIME DESTINATION lib/${PROJECT_NAME})
-endforeach()
-
 if(BUILD_TESTING)
-  foreach(suite IN ITEMS virtual_motor vcan_integration)
-    add_executable(test_${suite} test/test_${suite}.cpp)
-    target_link_libraries(test_${suite} PRIVATE encos_virtual_model Threads::Threads)
-    target_compile_options(test_${suite} PRIVATE -Wall -Wextra -Wpedantic)
-    add_test(NAME p1_${suite} COMMAND test_${suite})
-  endforeach()
-  set_tests_properties(p1_vcan_integration PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 45)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_test(NAME encos_usb_can_cli
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/test_usb_cli.py"
+            "$<TARGET_FILE:encos_usb_can>")
+  set_tests_properties(encos_usb_can_cli PROPERTIES TIMEOUT 20)
 endif()
 
 find_package(ament_cmake QUIET)

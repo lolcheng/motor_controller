@@ -2,10 +2,11 @@
 <package format="3">
   <name>encos_tools</name>
   <version>0.0.1</version>
-  <description>ENCOS Gen 2 virtual CAN motor and offline integration tools</description>
+  <description>ENCOS Gen 2 USB-CAN terminal, frame transmission and read-only queries</description>
   <maintainer email="maintainers@example.invalid">ENCOS workspace maintainers</maintainer>
   <license>UNLICENSED</license>
   <buildtool_depend>ament_cmake</buildtool_depend>
   <depend>encos_core</depend>
+  <test_depend>python3</test_depend>
   <export><build_type>ament_cmake</build_type></export>
 </package>

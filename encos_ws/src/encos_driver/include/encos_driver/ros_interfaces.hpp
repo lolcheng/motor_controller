@@ -1,9 +1,7 @@
 #pragma once
 
 #include "encos_core/protocol.hpp"
-#include "encos_core/safety_manager.hpp"
 #include "encos_msgs/msg/motor_command.hpp"
-#include "encos_msgs/msg/motor_profile.hpp"
 #include "encos_msgs/msg/motor_state.hpp"
 #include "encos_msgs/msg/parameter_value.hpp"
 #include "encos_msgs/msg/raw_frame.hpp"
@@ -18,5 +16,4 @@ msg::ParameterValue typed_value(const ParameterValue& value);
 msg::RawFrame raw_message(const CanFrame& frame, TimePoint time, const ReceivedFrame* sample = nullptr);
 msg::MotorState state_message(std::uint16_t id, const Telemetry* feedback = nullptr,
                               const ReceivedFrame* sample = nullptr);
-msg::MotorProfile profile_message(const VerifiedMotor& profile);
 }  // namespace encos::driver

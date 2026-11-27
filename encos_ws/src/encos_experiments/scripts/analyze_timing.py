@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize real monotonic timings in a P2 control sample CSV."""
+"""Summarize host receive intervals or historical ENCOS control timing."""
 import argparse
 import csv
 import json
@@ -48,12 +48,33 @@ def summarize(rows, hz):
     }
 
 
+def summarize_receive(rows, hz, can_id):
+    timestamps = [int(row['rx_mono_ns']) for row in rows
+                  if row['rx_mono_ns'] and (can_id is None or int(row['can_id'], 0) == can_id)]
+    gaps = [(later - earlier) / 1000 for earlier, later in zip(timestamps, timestamps[1:])]
+    if any(gap < 0 for gap in gaps):
+        raise ValueError('host receive timestamps must be monotonic within a recording')
+    span = (timestamps[-1] - timestamps[0]) / 1e9 if gaps else 0
+    return {
+        'target_hz': hz, 'can_id': can_id, 'rx_samples': len(timestamps), 'rx_span_s': span,
+        'rx_hz': len(gaps) / span if span > 0 else None,
+        'host_rx_gap_us': percentiles(gaps),
+        'host_rx_jitter_us': percentiles([abs(gap - 1e6 / hz) for gap in gaps]),
+    }
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('csv')
     parser.add_argument('--hz', required=True, type=int)
+    parser.add_argument('--rx', action='store_true', help='analyze a raw receive CSV from the USB-CAN node')
+    parser.add_argument('--can-id', type=lambda value: int(value, 0), help='filter receive analysis by CAN ID')
     args = parser.parse_args()
     if args.hz <= 0:
         parser.error('--hz must be positive')
+    if args.can_id is not None and not args.rx:
+        parser.error('--can-id requires --rx')
     with open(args.csv, newline='') as source:
-        print(json.dumps(summarize(list(csv.DictReader(source)), args.hz), indent=2))
+        rows = list(csv.DictReader(source))
+    result = summarize_receive(rows, args.hz, args.can_id) if args.rx else summarize(rows, args.hz)
+    print(json.dumps(result, indent=2))

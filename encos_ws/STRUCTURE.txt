@@ -1,254 +1,159 @@
-ENCOS 二代关节电机工程 | 目录树与逐文件说明
-============================================
+ENCOS 二代关节电机 | 目录树与逐文件说明
+==========================================
 
-本清单对应根目录当前的 P0–P2 实现。左侧为实际路径，右侧为用途。
-“空占位”指当前文件为空，编译和测试均未使用该文件。构建、安装、日志和
-编辑器缓存按用途列到目录或常用入口，生成的文件会随运行变化。
+实际使用走 USB‑CAN。列出源码、配置和文档，生成目录只列常用入口。
 
 encos_ws/                                              工程根目录
-├── .gitignore                                         忽略构建、安装、运行数据和 Python 缓存
-├── AGENTS.md                                          开发约束、协议来源和实机操作边界
-├── README.md                                          工程概况及 P0/P1 工具入口
-├── TUTORIAL.txt                                       编译、自动验证、多终端演示和录包教程
-├── STRUCTURE.txt                                      本目录树和文件说明
-├── .vscode/                                           IDE 工作区配置和浏览缓存
-│   ├── c_cpp_properties.json                          C/C++ IntelliSense、头文件搜索和浏览库配置
-│   ├── settings.json                                  Jazzy 与 Python 编辑器分析路径
-│   ├── browse.vc.db                                   C/C++ 扩展生成的符号浏览数据库
-│   ├── browse.vc.db-shm                               C/C++ 浏览数据库共享状态文件
-│   ├── browse.vc.db-wal                               C/C++ 浏览数据库预写日志
-│   └── browse.vc.db.lock                              C/C++ 浏览数据库锁文件
-├── build/                                             CMake 编译产物、测试二进制和临时核验脚本
-│   ├── p0-offline/                                    独立 P0 CMake 构建和测试，运行脚本后生成
-│   ├── p2/                                            Jazzy 五包构建目录及 CTest 结果
-│   └── p2-asan/                                       ASan/UBSan 构建目录
-├── install/                                           colcon 生成的工作区安装目录
-│   ├── p2/                                            Jazzy 运行环境，入口为 local_setup.bash
-│   └── p2-asan/                                       ASan/UBSan 安装环境
-├── log/                                               colcon 生成的构建和测试日志
-├── logs/                                              工程阶段日志、逐样本和录包证据
-│   ├── .gitkeep                                       保留日志目录的标记
-│   ├── p1/                                            P1 测试、抓包和 SocketCAN 基准记录
-│   └── p2/                                            P2 构建、回归、CLI 和性能记录
-│       ├── native-classic/                            经典 CAN A–E 工况的 JSON、CSV 和 bag
-│       ├── native-fd/                                 CAN FD+BRS A–E 工况的 JSON、CSV 和 bag
-│       └── tutorial-pass/                             P2 多终端命令的验证输出及录包
-├── data/                                              预留的运行数据存放目录
-│   └── .gitkeep                                       保留目录的标记
-├── docs/                                              资料、协议覆盖、验收和阶段报告
-│   ├── acceptance.md                                  P0–P4 验收门槛和当前状态
-│   ├── file_index.txt                                 初始文件索引
-│   ├── hardware_checklist.md                          现场人员启用真实硬件前的检查项
-│   ├── open_issues.md                                 原稿矛盾、尚未确认的行为和实现隔离
-│   ├── protocol_coverage.md                            指令、反馈、代码和测试的覆盖表
-│   ├── ros2_p2.md                                     ROS API、QoS、命令示例和时间戳说明
-│   ├── reports/                                       各阶段实施与验收记录
-│   │   ├── P0.md                                      离线协议、安全限制和原始报文验证
-│   │   ├── P1.md                                      SocketCAN、虚拟电机、故障与性能实测
-│   │   ├── P2.md                                      Jazzy、虚拟链路、录包和性能验收
-│   │   ├── P3.md                                      空占位，等实机只读阶段
-│   │   └── P4.md                                      空占位，等实机空载控制阶段
-│   └── vendor/                                        厂商原稿和来源索引
-│       ├── README.md                                  厂商原稿名、版本和使用说明
-│       ├── ENCOS 调试技术手册 V1.19EAP.pdf             厂商私有 CAN 指令、反馈和参数定义
-│       └── ENCOS第二代关节数据手册-V1.4EAP.pdf         机械、电气和型号参数
-├── prompts/                                           工程分阶段任务书
-│   ├── MASTER.md                                      总目标、依赖、开发顺序和验收原则
-│   ├── P0.md                                          纯 C++ 离线协议任务
-│   ├── P1.md                                          SocketCAN 与虚拟电机任务
-│   ├── P2.md                                          ROS 2 Jazzy 驱动与数据链路任务
-│   ├── P3.md                                          实机只读阶段任务书
-│   └── P4.md                                          实机空载阶段任务书
-├── scripts/                                           从根目录执行的工作区辅助脚本
-│   ├── check_can_interface.sh                         空占位，虚拟接口检查由 setup_vcan.sh 完成
-│   ├── configure_can.sh                               空占位
-│   ├── record_bag.sh                                  空占位，P2 使用 record.launch.py 录包
-│   ├── run_offline_tests.sh                           独立配置、构建并运行 P0 CTest
-│   ├── run_vcan_benchmark.sh                          逐频启动虚拟电机，运行两种帧型的 P1 基准并保存记录
-│   ├── setup_vcan.sh                                  校验 vcan 类型、UP 和 MTU，创建或清理专用虚拟接口
-│   └── test_vcan_processes.sh                         验证 CLI、观察器、虚拟电机被终止和重启后的读回
-├── tests/                                             跨包集成测试和预留测试数据
-│   ├── fixtures/                                     测试资源占位目录，当前向量写在各包 C++ 测试里
-│   │   ├── feedback_vectors.yaml                      空占位，计划保存反馈示例
-│   │   ├── firmware_profiles.yaml                     空占位，计划保存固件配置测试数据
-│   │   └── golden_vectors.yaml                        空占位，计划保存原始报文样例
-│   └── integration/                                  工作区级测试与压测入口
-│       ├── run_p2_performance.py                      运行 A–E 工况，统计与保存样本，核对 bag、CSV 和 SQLite
-│       ├── test_fault_injection.py                     空占位，故障用例已在 tools 和 driver 的包内测试运行
-│       └── test_p0_p2.py                              空占位，当前由 colcon 汇总包内回归
-└── src/                                               五个 ament 包
-    ├── encos_core/                                    纯 C++ 协议、传输、事务与安全基础库
-    │   ├── CMakeLists.txt                             构建基础库和 8 个离线测试，支持 ament 与独立 CMake
-    │   ├── package.xml                               core 包元数据和 ament 构建声明
-    │   ├── cmake/                                     独立 CMake 导出模板
-    │   │   └── encos_coreConfig.cmake.in              供无 ROS 的下游通过 find_package 链接
-    │   ├── include/                                   对外头文件入口
-    │   │   └── encos_core/                            core 公共类型和 API
-    │   │       ├── bit_codec.hpp                      位域、字节序、浮点、缩放、单位常量和编解码错误类型
-    │   │       ├── can_frame.hpp                      CAN 帧元数据、原始字节、帧来源及时间戳类型
-    │   │       ├── clock.hpp                          工程统一的单调时钟及时间点定义
-    │   │       ├── command.hpp                        混控、位置、速度、驱动模式和配置参数类型
-    │   │       ├── control_loop.hpp                   空占位，P2 控制循环位于 driver 的 ControlWorker
-    │   │       ├── feedback.hpp                       反馈、查询、管理回显、抱闸、故障及测量来源类型
-    │   │       ├── mock_transport.hpp                 离线队列传输接口，支持注入接收帧并检查发送结果
-    │   │       ├── motor_profile.hpp                  混控和 Type 1 反馈的量化范围与 Kt 描述
-    │   │       ├── motor_session.hpp                  空占位
-    │   │       ├── parameter_registry.hpp             查询码、配置码、参数形状和缩放规则声明
-    │   │       ├── protocol.hpp                       编解码 API、期望回复签名和写后间隔
-    │   │       ├── safety_manager.hpp                 安全状态、故障、运动授权、限值和保护接口
-    │   │       ├── socketcan_transport.hpp            SocketCAN 选项、有界收发接口、状态和时间戳
-    │   │       ├── trace.hpp                          空占位，P2 使用 ControlSample 和独立记录工具
-    │   │       ├── transaction_manager.hpp            单一在途事务、匹配、超时、隔离和 UUID 组装接口
-    │   │       └── transport.hpp                      通用发送、接收抽象及发送状态
-    │   ├── src/                                       core 实现
-    │   │   ├── bit_codec.cpp                          位域读写、大端整数、float32 和有界定点转换
-    │   │   ├── control_loop.cpp                       空占位
-    │   │   ├── mock_transport.cpp                    离线队列、断连与收发注入实现
-    │   │   ├── motor_profile.cpp                      量化范围和协议参数的自洽性校验
-    │   │   ├── motor_session.cpp                     空占位
-    │   │   ├── parameter_registry.cpp                逐协议码描述有效载荷、符号、长度和缩放
-    │   │   ├── protocol_commands.cpp                 控制、管理、查询、配置命令编码
-    │   │   ├── protocol_feedback.cpp                 遥测、查询、特殊回显、管理和抱闸反馈解码
-    │   │   ├── safety_manager.cpp                    授权、限幅、新鲜度检查、故障锁存及显式恢复
-    │   │   ├── socketcan_transport.cpp               原生 CAN socket、vcan 类型检查、时间戳和并发保护
-    │   │   ├── trace.cpp                              空占位
-    │   │   └── transaction_manager.cpp               匹配应答、组装 UUID、隔离迟到帧和写后等待
-    │   └── test/                                      P0 独立协议、安全及传输测试
-    │       ├── check.hpp                              断言、报文字节比较、合成帧和测试范围
-    │       ├── test_bit_codec.cpp                     位域、符号、缩放与浮点边界
-    │       ├── test_command_vectors.cpp               官方及独立预期报文与控制编码
-    │       ├── test_control_loop.cpp                  空占位
-    │       ├── test_feedback.cpp                      各类反馈、字段有效性和数值转换
-    │       ├── test_invalid_frames.cpp                非法帧、非法长度和禁止编码的输入
-    │       ├── test_parameters.cpp                    查询、配置与参数缩放校验
-    │       ├── test_safety.cpp                        授权、限值、看门狗与故障恢复
-    │       ├── test_session.cpp                       空占位
-    │       ├── test_timeouts.cpp                      应答匹配、超时、隔离和写后等待
-    │       └── test_transport.cpp                     模拟传输收发、队列满、回环与断连清理
-    ├── encos_driver/                                  ROS 节点与独立 SocketCAN 控制线程
-    │   ├── CMakeLists.txt                             构建驱动、接口单测和 vcan ROS 集成测试
-    │   ├── package.xml                               驱动、ROS 接口、核心、轨迹、启动工具依赖
-    │   ├── config/                                    驱动启动参数
-    │   │   ├── EC-A10825-P2-24H-B.yaml                型号名、关节名和虚拟实验限值
-    │   │   ├── experiment_limits.yaml                  可组合的安全反馈、有效期及运行时长设置
-    │   │   ├── hardware_unarmed.yaml                  保留的实机参数占位配置，当前物理接口受阻
-    │   │   └── vcan.yaml                              虚拟接口、帧型、频率及可选功能的默认值
-    │   ├── include/                                   驱动头文件入口
-    │   │   └── encos_driver/                          驱动内部类、接口映射和跨线程队列
-    │   │       ├── control_worker.hpp                 独立 worker、授权、管理任务和状态快照
-    │   │       ├── motor_node.hpp                     ROS 节点、执行器回调和发布接口
-    │   │       ├── ros_interfaces.hpp                 ROS 类型与 core 类型的转换入口
-    │   │       ├── runtime_config.hpp                 运行配置类型和参数加载声明
-    │   │       └── sample_recorder.hpp                单生产者单消费者有界队列模板
-    │   ├── launch/                                    ROS 启动入口
-    │   │   ├── hardware.launch.py                     实机 launch 守卫，当前阶段直接拒绝启动
-    │   │   ├── record.launch.py                       用 rosbag2 记录样本、状态、统计、故障和调试帧
-    │   │   └── vcan.launch.py                         配置 ROS 节点，按选项同时启动虚拟电机
-    │   ├── src/                                       ROS 驱动实现
-    │   │   ├── control_worker.cpp                     按单调时钟调度、事务收发、配置读回和停止状态机
-    │   │   ├── main.cpp                               驱动进程入口、ROS 初始化和退出处理
-    │   │   ├── motor_node.cpp                         Topic、Service、Action、控制权仲裁与状态发布
-    │   │   ├── ros_interfaces.cpp                     命令校验、物理量和类型化参数映射
-    │   │   ├── runtime_config.cpp                    读取和校验启动参数，将它们设为只读
-    │   │   └── sample_recorder.cpp                    空占位，队列实现在 sample_recorder.hpp
-    │   └── test/                                      ROS 消息和 vcan 端到端测试
-    │       ├── ros_harness.py                         构建虚拟测试环境、进程管理和 ROS 客户端辅助
-    │       ├── test_driver_launch.py                 两种帧型的控制、服务、故障、授权、退出和恢复测试
-    │       ├── test_ros_interfaces.cpp                独立报文、ROS 映射、缺失字段和跨线程队列测试
-    │       └── test_watchdog.cpp                      空占位，看门狗场景已覆盖在端到端测试
-    ├── encos_experiments/                             轨迹、虚拟控制命令、压测发布器和数据分析
-    │   ├── CMakeLists.txt                             构建轨迹库、发布器和测试，安装三个 Python 入口
-    │   ├── package.xml                               实验包依赖与 ament 构建声明
-    │   ├── config/                                    预留实验参数目录
-    │   │   ├── read_only.yaml                         空占位，预留只读实验参数
-    │   │   ├── timing_benchmark.yaml                 空占位，当前压测使用脚本命令行参数
-    │   │   ├── unloaded_brake.yaml                    空占位，预留空载制动参数
-    │   │   ├── unloaded_current_torque.yaml           空占位，预留空载电流和力矩参数
-    │   │   ├── unloaded_impedance.yaml                空占位，预留空载混控参数
-    │   │   ├── unloaded_position.yaml                 空占位，预留空载位置参数
-    │   │   └── unloaded_velocity.yaml                 空占位，预留空载速度参数
-    │   ├── include/                                   实验工具头文件入口
-    │   │   └── encos_experiments/                     实验接口
-    │   │       ├── experiment_runner.hpp              空占位，有限 Action 由 ControlWorker 执行
-    │   │       └── trajectory.hpp                      保持、阶跃、正弦和扫频轨迹定义
-    │   ├── scripts/                                   ros2 run 可执行的虚拟控制和分析脚本
-    │   │   ├── analyze_timing.py                      分析 CSV 的实际频率、延迟分位、抖动和丢失
-    │   │   ├── export_samples.py                      从 SQLite3 或 MCAP bag 解码控制样本并写 CSV
-    │   │   └── virtual_control.py                     带时间戳和有效期的有限 Topic 发布，可请求授权及停止
-    │   ├── src/                                       实验工具的 C++ 实现
-    │   │   ├── experiment_node.cpp                    encos_topic_source 高频目标发布器，保存发布时间
-    │   │   ├── experiment_runner.cpp                  空占位
-    │   │   └── trajectory.cpp                         轨迹校验、采样及周期段最大斜率估计
-    │   └── test/                                      实验和轨迹测试
-    │       ├── test_experiment_limits.cpp             空占位
-    │       └── test_trajectory.cpp                    四种轨迹及非法轨迹参数校验
-    ├── encos_msgs/                                    ROS 2 消息、服务和 Action 定义
-    │   ├── CMakeLists.txt                             调用 rosidl 生成接口语言绑定和运行期支持
-    │   ├── package.xml                               接口包元数据和消息生成依赖
-    │   ├── action/                                    有限实验动作接口
-    │   │   └── RunExperiment.action                  定义轨迹目标、进度、采样数及结果
-    │   ├── msg/                                       消息、测量与参数结构
-    │   │   ├── CommunicationStats.msg                频率、RTT、抖动、超时、丢弃及缓冲溢出计数
-    │   │   ├── ControlSample.msg                     命令、应用的 ACK、事务结果、反馈和时序字段
-    │   │   ├── MotorCommand.msg                      模式、目标、增益、限值、owner、时间和有效期
-    │   │   ├── MotorFault.msg                        状态、软件故障、电机错误及是否锁存
-    │   │   ├── MotorProfile.msg                       已核验的虚拟版本、量化范围、Kt、超时与抱闸状态
-    │   │   ├── MotorState.msg                         当前状态、测量及其有效性、时间和来源
-    │   │   ├── ParameterValue.msg                     标量、范围、枚举、UUID、版本、编码器与 Kt 分组
-    │   │   └── RawFrame.msg                           可选观测的 CAN 元数据、字节、帧型和时间戳
-    │   └── srv/                                       管理、授权、安全和配置服务
-    │       ├── Arm.srv                                申请只读、Topic 或 Action 软件控制权
-    │       ├── DiscoverMotor.srv                      查询虚拟电机 ID 并返回原始回复
-    │       ├── GetProfile.srv                         读取驱动状态与已核验参数快照
-    │       ├── ReadParameter.srv                      指定查询码和组号，返回类型化值及原始帧
-    │       ├── ResetFault.srv                         有确认地解除可复位的软件故障锁存
-    │       ├── ResetMotorId.srv                       受保护地重置虚拟电机 ID
-    │       ├── SetBrake.srv                           请求虚拟抱闸状态变化并校验读回
-    │       ├── SetMotorId.srv                         受保护地修改虚拟电机 ID
-    │       ├── SetZero.srv                            受保护地设置虚拟零点及可选偏置
-    │       ├── Stop.srv                               请求停止并撤销软件控制权
-    │       └── WriteParameter.srv                     写入类型化参数，区分确认和读回验证
-    └── encos_tools/                                   Linux vcan 虚拟端点和独立工具
-        ├── CMakeLists.txt                             构建模型、四个命令行工具及两项 P1 测试
-        ├── package.xml                               工具包元数据和 core 依赖
-        ├── include/                                   工具头文件入口
-        │   └── encos_tools/                           共享工具及虚拟模型接口
-        │       ├── runtime.hpp                        解析帧型和数值、格式化帧、执行有界 CAN 问答
-        │       └── virtual_motor.hpp                  虚拟状态、模型参数、故障选项和延迟队列类型
-        ├── src/                                       虚拟电机、基准和独立终端工具
-        │   ├── bus_monitor.cpp                        encos_bus_monitor，只读抓取 vcan 收发
-        │   ├── encos_cli.cpp                          encos_cli，执行发现、查询和显式授权的虚拟位置/速度
-        │   ├── latency_benchmark.cpp                  encos_latency_benchmark，测量虚拟问答、抖动和丢帧
-        │   ├── virtual_motor.cpp                      encos_virtual_motor，收发 CAN、解析注入选项和引导反馈
-        │   └── virtual_motor_model.cpp                虚拟运动和看门狗、参数及反馈生成、确定性故障注入
-        └── test/                                      虚拟端点及 SocketCAN 集成测试
-            ├── test_support.hpp                       CAN 测试帧、断言和浮点比较辅助
-            ├── test_vcan_integration.cpp              两种帧型的真实 Linux vcan 事务、故障与传输测试
-            └── test_virtual_motor.cpp                虚拟模型和注入队列的离线测试
+├── AGENTS.md                                            开发约束、协议来源和实机操作边界
+├── MotorToolV1.24.zip                                   厂商上位机原始包，提供串口封装的静态分析证据
+├── README.md                                            USB‑CAN 快速开始、各包功能和验证说明
+├── TUTORIAL.txt                                         构建、串口收发、ROS 2、录包、CSV 和接收时序分析
+├── STRUCTURE.txt                                        本目录树和文件说明
+├── .vscode/                                             IDE 工作区配置和浏览缓存
+│   ├── c_cpp_properties.json                            C/C++ IntelliSense、头文件搜索和浏览库配置
+│   ├── settings.json                                    Jazzy 与 Python 编辑器分析路径
+│   ├── browse.vc.db                                     C/C++ 扩展生成的符号浏览数据库
+│   ├── browse.vc.db-shm                                 C/C++ 浏览数据库共享状态文件
+│   ├── browse.vc.db-wal                                 C/C++ 浏览数据库预写日志
+│   └── browse.vc.db.lock                                C/C++ 浏览数据库锁文件
+├── build/                                               生成的编译、静态分析、测试及 colcon 日志
+│   ├── native/                                          不依赖 ROS 的 CMake 构建及安装目录
+│   ├── motortool-static/                                厂商 EXE 的提取和静态分析文件，可由教程重建
+│   ├── named-cli/                                       命名指令构建、测试及日志
+│   ├── analyzer-tx/                                     分析仪台架发送的构建与验证日志
+│   ├── usb-terminal/                                    持续串口会话的构建与验证日志
+│   ├── usb/                                             Jazzy 构建目录
+│   └── usb-cleanup/                                     实物主链路整理后的构建与复验记录
+├── data/                                                按需保存的 bag 和 CSV 输出
+│   └── .gitkeep                                         保留目录的标记
+├── docs/                                                资料、协议覆盖、验收和阶段报告
+│   ├── issues.md                                        原稿矛盾、尚未确认的行为和实现隔离
+│   ├── protocol_coverage.md                             指令、反馈、代码和测试的覆盖表
+│   └── vendor/                                          厂商原稿和来源索引
+│       ├── ENCOS 调试技术手册 V1.19EAP.pdf              厂商私有 CAN 指令、反馈和参数定义
+│       ├── ENCOS第二代关节数据手册-V1.4EAP.pdf          机械、电气和型号参数
+│       └── README.md                                    厂商原稿名、版本和使用说明
+├── install/                                             colcon 生成的工作区安装目录
+│   └── usb/                                             Jazzy 安装入口，加载 local_setup.bash
+├── scripts/                                             从根目录执行的工作区辅助脚本
+│   └── run_offline_tests.sh                             独立构建并运行 C++ 协议和串口伪终端测试
+└── src/                                                 五个工具和库的源码包
+    ├── encos_core/                                      ENCOS 编解码、串口、事务和安全规则
+    │   ├── CMakeLists.txt                               构建基础库和 9 个离线 CTest，支持 ament 和独立 CMake
+    │   ├── cmake/                                       独立 CMake 导出模板
+    │   │   └── encos_coreConfig.cmake.in                供无 ROS 的下游通过 find_package 链接
+    │   ├── include/                                     对外头文件入口
+    │   │   └── encos_core/                              core 公共类型和 API
+    │   │       ├── bit_codec.hpp                        位域、字节序、浮点、缩放、单位常量和编解码错误类型
+    │   │       ├── can_frame.hpp                        CAN 帧元数据、原始字节、帧来源及时间戳类型
+    │   │       ├── clock.hpp                            工程统一的单调时钟及时间点定义
+    │   │       ├── command.hpp                          混控、位置、速度、驱动模式和配置参数类型
+    │   │       ├── feedback.hpp                         反馈、查询、管理回显、抱闸、故障及测量来源类型
+    │   │       ├── mock_transport.hpp                   离线队列传输接口，支持注入接收帧并检查发送结果
+    │   │       ├── motor_profile.hpp                    混控和 Type 1 反馈的量化范围与 Kt 描述
+    │   │       ├── parameter_registry.hpp               查询码、配置码、参数形状和缩放规则声明
+    │   │       ├── protocol.hpp                         编解码 API、期望回复签名和写后间隔
+    │   │       ├── safety_manager.hpp                   安全状态、故障、运动授权、限值和保护接口
+    │   │       ├── serial_can_transport.hpp             串口传输、手动命令发送和只读查询接口
+    │   │       ├── transaction_manager.hpp              单事务和迟到回包隔离接口
+    │   │       └── transport.hpp                        通用发送、接收抽象及发送状态
+    │   ├── package.xml                                  core 包元数据和 ament 构建声明
+    │   ├── src/                                         core 实现
+    │   │   ├── bit_codec.cpp                            位域读写、大端整数、float32 和有界定点转换
+    │   │   ├── mock_transport.cpp                       离线队列、断连与收发注入实现
+    │   │   ├── motor_profile.cpp                        量化范围和协议参数的自洽性校验
+    │   │   ├── parameter_registry.cpp                   逐协议码描述有效载荷、符号、长度和缩放
+    │   │   ├── protocol_commands.cpp                    控制、管理、查询、配置命令编码
+    │   │   ├── protocol_feedback.cpp                    遥测、查询、特殊回显、管理和抱闸反馈解码
+    │   │   ├── safety_manager.cpp                       授权、限幅、新鲜度检查、故障锁存及显式恢复
+    │   │   ├── serial_can_transport.cpp                 termios、流式拆包、命令写入、只读白名单和有界查询
+    │   │   └── transaction_manager.cpp                  匹配应答、组装 UUID、隔离迟到帧和写后等待
+    │   └── test/                                        独立协议、安全及传输测试
+    │       ├── check.hpp                                断言、报文字节比较、合成帧和测试范围
+    │       ├── test_bit_codec.cpp                       位域、符号、缩放与浮点边界
+    │       ├── test_command_vectors.cpp                 官方及独立预期报文与控制编码
+    │       ├── test_feedback.cpp                        各类反馈、字段有效性和数值转换
+    │       ├── test_invalid_frames.cpp                  非法帧、非法长度和禁止编码的输入
+    │       ├── test_parameters.cpp                      查询、配置与参数缩放校验
+    │       ├── test_safety.cpp                          授权、限值、看门狗与故障恢复
+    │       ├── test_serial_can.cpp                      伪终端测试分段连包、校验、只读限制、查询和超时
+    │       ├── test_timeouts.cpp                        应答匹配、超时、隔离和写后等待
+    │       └── test_transport.cpp                       模拟传输收发、队列满、回环与断连清理
+    ├── encos_driver/                                    USB‑CAN 只读 ROS 2 节点
+    │   ├── CMakeLists.txt                               构建串口节点和两项 ROS 测试
+    │   ├── include/                                     驱动头文件入口
+    │   │   └── encos_driver/                            驱动内部类、接口映射和跨线程队列
+    │   │       └── ros_interfaces.hpp                   ROS 类型与 core 类型的转换入口
+    │   ├── launch/                                      ROS 启动入口
+    │   │   └── record.launch.py                         录制原始接收帧和电机状态，默认写入 data/
+    │   ├── package.xml                                  驱动、ROS 接口、核心、轨迹、启动工具依赖
+    │   ├── src/                                         ROS 驱动实现
+    │   │   ├── ros_interfaces.cpp                       命令校验、物理量和类型化参数映射
+    │   │   └── usb_can_node.cpp                         监听 USB CAN、发布原始帧和状态、按显式授权提供查询服务
+    │   └── test/                                        ROS 映射与伪终端串口测试
+    │       ├── test_ros_interfaces.cpp                  独立报文、ROS 映射、缺失字段和类型化参数
+    │       └── test_usb_can_ros.py                      在伪终端核对 ROS 只听、查询、状态发布和发送限制
+    ├── encos_experiments/                               轨迹库、bag 导出与时序分析
+    │   ├── CMakeLists.txt                               轨迹库、轨迹测试和分析脚本安装
+    │   ├── include/                                     实验工具头文件入口
+    │   │   └── encos_experiments/                       实验接口
+    │   │       └── trajectory.hpp                       保持、阶跃、正弦和扫频轨迹定义
+    │   ├── package.xml                                  实验包依赖与 ament 构建声明
+    │   ├── scripts/                                     rosbag2 导出和时序分析脚本
+    │   │   ├── analyze_timing.py                        分析实际接收频率与间隔或历史控制时序
+    │   │   └── export_samples.py                        导出原始帧、电机状态或历史控制样本到 CSV
+    │   ├── src/                                         轨迹的 C++ 实现
+    │   │   └── trajectory.cpp                           轨迹校验、采样及周期段最大斜率估计
+    │   └── test/                                        实验和轨迹测试
+    │       └── test_trajectory.cpp                      四种轨迹及非法轨迹参数校验
+    ├── encos_msgs/                                      ROS 2 消息、服务和 Action 定义
+    │   ├── CMakeLists.txt                               调用 rosidl 生成接口语言绑定和运行期支持
+    │   ├── action/                                      有限实验动作接口
+    │   │   └── RunExperiment.action                     定义轨迹目标、进度、采样数及结果
+    │   ├── msg/                                         消息、测量与参数结构
+    │   │   ├── CommunicationStats.msg                   频率、RTT、抖动、超时、丢弃及缓冲溢出计数
+    │   │   ├── ControlSample.msg                        命令、应用的 ACK、事务结果、反馈和时序字段
+    │   │   ├── MotorCommand.msg                         模式、目标、增益、限值、owner、时间和有效期
+    │   │   ├── MotorFault.msg                           状态、软件故障、电机错误及是否锁存
+    │   │   ├── MotorProfile.msg                         版本、量化范围、Kt、超时与抱闸状态接口
+    │   │   ├── MotorState.msg                           当前状态、测量及其有效性、时间和来源
+    │   │   ├── ParameterValue.msg                       标量、范围、枚举、UUID、版本、编码器与 Kt 分组
+    │   │   └── RawFrame.msg                             可选观测的 CAN 元数据、字节、帧型和时间戳
+    │   ├── package.xml                                  接口包元数据和消息生成依赖
+    │   └── srv/                                         管理、授权、安全和配置服务
+    │       ├── Arm.srv                                  申请只读、Topic 或 Action 软件控制权
+    │       ├── DiscoverMotor.srv                        只读查询电机 ID 并返回原始回复
+    │       ├── GetProfile.srv                           读取驱动状态与已核验参数快照
+    │       ├── ReadParameter.srv                        指定查询码和组号，返回类型化值及原始帧
+    │       ├── ResetFault.srv                           有确认地解除可复位的软件故障锁存
+    │       ├── ResetMotorId.srv                         重置电机 ID 的保留接口
+    │       ├── SetBrake.srv                             改变抱闸状态的保留接口
+    │       ├── SetMotorId.srv                           修改电机 ID 的保留接口
+    │       ├── SetZero.srv                              设置零点及可选偏置的保留接口
+    │       ├── Stop.srv                                 请求停止并撤销软件控制权
+    │       └── WriteParameter.srv                       写入类型化参数的保留接口
+    └── encos_tools/                                     用于 USB‑CAN 的独立 C++ 命令行
+        ├── CMakeLists.txt                               构建和安装 CLI，注册命令行测试
+        ├── package.xml                                  工具包元数据、core 与测试依赖
+        ├── src/                                         命令行实现
+        │   ├── cli_commands.cpp                         解析命名指令、调用核心编码并显示发送帧
+        │   ├── cli_commands.hpp                         CLI 内部的参数解析和帧显示接口
+        │   └── usb_can.cpp                              encos_usb_can 入口、持续收发、单次发送、只读查询和反馈显示
+        └── test/
+            └── test_usb_cli.py                          伪终端核对实际发送字节、空闲收帧、回显和查询应答
 
-运行和依赖关系
---------------
+实际运行依赖
+------------
 
-  Topic / Service / Action
-              ↓
-  encos_driver 的 ROS Executor
-              ↓ 有界邮箱与队列
-  encos_driver 的 ControlWorker ← encos_experiments 的 C++ 轨迹库
-              ↓ 调用 encos_core
-  ENCOS 编解码、事务、安全检查和 Linux SocketCAN
-              ↓ vcan0
-  encos_tools 的虚拟电机
-              ↑ 反馈沿同一路径返回，并发布 ROS 状态与控制样本
-              ↑ record.launch.py 可在另一个进程录包，实验工具负责导出分析
+  encos_usb_can 或 encos_usb_can_node → SerialCanTransport → USB‑CAN 模块 → CAN 总线
+  USB‑CAN 命令行会话打开一个串口，键盘命令经 Protocol 编码发送，空闲时照常接收。
+  收到的 CAN 帧 → encos_core::Protocol → 终端或 ROS 2 的原始帧和 MotorState
+  现场授权后可读 ID 和参数，由 TransactionManager 匹配应答。
+  record.launch.py 保存两个实际话题，encos_experiments 导出 CSV 并分析主机接收时序。
 
-  encos_core 可独立构建。encos_msgs 专门生成 ROS 接口。
-  driver 使用 core、msgs 和 experiments 的轨迹库，launch 可启动 tools。
-  tools 使用 core。experiments 的 ROS 发布与数据工具使用 msgs。
+离线验证与保留 API
+------------------
 
-查阅入口
---------
-
-  先跑起来                  TUTORIAL.txt
-  看全部协议与歧义          docs/protocol_coverage.md、docs/open_issues.md
-  查 ROS 字段、QoS 和时序    docs/ros2_p2.md
-  查验收结果及原始记录      docs/reports/P2.md、logs/p2/
+  C++ 协议、事务及安全用例和 Linux 伪终端测试无需连接 CAN。
+  RunExperiment.action 与轨迹库保留。当前 USB 节点提供只读通信。
+  历史阶段记录、旧安装产物和工具指南已移到工作区外的历史归档。

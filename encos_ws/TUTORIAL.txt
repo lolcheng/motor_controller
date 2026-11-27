@@ -1,269 +1,412 @@
-ENCOS 二代关节电机工程 | P0–P2 编译与验证
-==========================================
+ENCOS 二代关节电机 | USB‑CAN 与可选 ROS 2 工具
+====================================================
 
-适用环境为 Ubuntu 24.04、ROS 2 Jazzy、C++17 和 Bash。
-以下查询、写入、控制及故障演示只用 Linux vcan 和虚拟电机。当前驱动
-只接受内核识别为 vcan 的接口。验收范围和原始证据见 docs/reports/P2.md。
+当前实际使用链路为 USB‑CAN 串口收发 → encos_core 协议编解码 → 终端或 ROS 2。
+分析仪已验证 USB‑CAN 模块双向转发。重整后的 C++ 主链路用伪终端验证，
+真实电机的问答、写入与运动均需按现场验收范围分别确认。
 
-1. 准备依赖和编译
-------------------
+1. 构建
+-------
 
-从工程根目录运行下列命令。已安装依赖时可直接开始编译。如需补装，由
-管理员手动执行以下命令。假定 ROS 2 Jazzy 的 apt 软件源已配置。
+目标环境为 Ubuntu 24.04 和 C++17。以下命令在工程根目录运行。
+
+1.1 只用 C++ 和命令行
+
+安装 g++、CMake 后，可独立构建 core 和 tools。串口功能使用 Linux termios。
+
+  cmake -S src/encos_core -B build/native/core \
+    -DCMAKE_DISABLE_FIND_PACKAGE_ament_cmake=ON -DBUILD_TESTING=ON \
+    -DCMAKE_INSTALL_PREFIX="$PWD/build/native/install"
+  cmake --build build/native/core --parallel 3
+  ctest --test-dir build/native/core --output-on-failure
+  cmake --install build/native/core
+
+  cmake -S src/encos_tools -B build/native/tools \
+    -DCMAKE_DISABLE_FIND_PACKAGE_ament_cmake=ON -DBUILD_TESTING=ON \
+    -DCMAKE_PREFIX_PATH="$PWD/build/native/install" \
+    -DCMAKE_INSTALL_PREFIX="$PWD/build/native/install"
+  cmake --build build/native/tools --parallel 3
+  ctest --test-dir build/native/tools --output-on-failure
+  cmake --install build/native/tools
+
+  usb_can="$PWD/build/native/install/lib/encos_tools/encos_usb_can"
+
+1.2 使用 ROS 2 Jazzy
+
+假定 ROS 2 Jazzy 软件源已配置，缺少依赖时由操作者安装：
 
   sudo apt install build-essential cmake python3-colcon-common-extensions \
-    iproute2 can-utils ripgrep ros-jazzy-ros-base ros-jazzy-rosbag2 \
+    ripgrep ros-jazzy-ros-base ros-jazzy-rosbag2 \
     ros-jazzy-rosbag2-storage-default-plugins ros-jazzy-rosidl-default-generators
 
-只验证 P0 时，可在没有 ROS 和 vcan 的 Bash 中运行。预期 CTest 8/8 通过。
+在新 Bash 中构建五个包：
+
+  source /opt/ros/jazzy/setup.bash
+  colcon --log-base build/colcon-build-log build --base-paths src \
+    --build-base build/usb --install-base install/usb \
+    --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON
+  source install/usb/local_setup.bash
+  usb_can="$PWD/install/usb/encos_tools/lib/encos_tools/encos_usb_can"
+
+2. 接线、权限与串口收发
+--------------------
+
+2.1 模块与分析仪
+
+先在电机断开的状态下验证。按两台设备的说明连接 CAN_H、CAN_L，
+确认参考地或隔离及终端，分析仪的 CAN 帧型和波特率要与模块配置一致。
+以下用已验证的标准帧串口封装。115200 是 PC 与模块间的串口波特率。
+
+  lsusb -d 1a86:7523
+  ls -l /dev/serial/by-id/ /dev/serial/by-path/
+  id -nG
+  stat -c '%U:%G %a %n' /dev/ttyUSB0
+
+预期 CH340 芯片 USB ID 为 1a86:7523，设备组通常是 dialout。如果缺组，
+现场操作者加组并注销后重登，也可以临时用 newgrp dialout。避免多个程序
+同时打开同一个串口。找到实际路径后设置：
+
+  sudo usermod -aG dialout nuc
+
+  serial_dev=/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
+
+如果由 by-id 识别不了多个 CH340，根据 USB 插口从 by-path 选正确设备。
+也可设置 serial_dev=/dev/ttyUSB0。以下各命令复用它。
+
+2.2 打开串口持续收发
+
+关闭正在占用同一设备的监听程序或 ROS 节点，再启动会话：
+
+  "$usb_can" "$serial_dev"
+
+显示 Listening on 后，电脑已经在读串口。此时可以让分析仪以 10 Hz
+发送 ID 0x001、DLC 8、数据全零的标准帧。即使键盘没有输入，也应看到
+RX 001#0000000000000000 undecoded。发有效的 ENCOS 反馈时同时显示已解码的字段。
+
+在该会话内一行一条输入，只有按回车提交命令才发帧：
+
+  DISCOVER
+  QUERY 1 VERSION
+  POS 1 30
+  HELP
+  EXIT
+
+每条 CAN 指令写入一次，会话继续收帧。EXIT、Ctrl+D 或 Ctrl+C 关闭串口。
+TX CAN 表示已写串口，是否上 CAN 总线以分析仪抓包为准。EXPECTED_REPLY
+显示协议定义的反馈种类。会话直接显示收到的报文，不把任意同类帧标成匹配的
+事务应答。和近期发送帧完全相同的接收帧会标记 possible_tx_echo。需要设备
+回复匹配、超时或 UUID 拼接时，用第 2.4 节的只读查询。
+
+只想发一帧时，可将命令接在设备路径后：
+
+  "$usb_can" "$serial_dev" POS 1 30 10 0.5 2
+
+这种调用发完退出，关闭后的反馈不保证缓冲到下次打开。使用之前的 Bash
+别名时，用下面一行更新；encos 不带参数进入会话，encos POS 1 30 发一帧即退出。
+
+  alias encos='"$usb_can" "$serial_dev"'
+
+POS 的参数顺序为电机 ID、输出端绝对目标角度（度）、速度上限（rpm）、
+相电流上限（A）、ACK。ACK 0 表示不要求回复，1、2、3 选择相应反馈类型。
+省略后三项时，POS 1 30 展开为 20 rpm、1 A、ACK 2。
+位置模式把 30° 写成 float32，速度和电流按 10 倍缩放后与模式、ACK 拼成 8 字节。
+分析仪预期看到 CAN 0x001、DLC 8、数据 28 3E 00 00 00 32 00 2A，
+PC 串口写入 AA 00 01 0D 28 3E 00 00 00 32 00 2A 7A。
+当前 USB‑CAN 封装支持经典标准帧，CAN FD+BRS 实物封装待确认。
+
+手册第 7–9 章中已有编码的指令均可逐条手动发送。完整用法见 --help：
+
+  DISCOVER、QUERY、SET_ID、RESET_ID、ZERO [偏置]   ID 和零点管理、查询
+  POS、VEL、MIXED、CURRENT、TORQUE                 各控制模式
+  DAMPING、DISSIPATIVE、REGENERATIVE               变阻尼、能耗和再生制动
+  ELECTROMAGNETIC_BRAKE、BRAKE                     两种抱闸报文
+  CONFIG                                          参数配置，包括分段 Kt
+
+MIXED 要求在命令末尾显式填写五对量化范围。它的角度和速度使用 rad、rad/s，
+与手册的混控示例一致。CONFIG POSITION_RANGE 和 VELOCITY_RANGE 同样使用
+rad、rad/s，ZERO 和 CONFIG ZERO_OFFSET 的偏置用度。混控按命令输入的
+范围量化。涉及运动和写配置的真机操作遵照 AGENTS.md 的现场核验要求。
+
+手册 V1.19EAP 的 §5.2（印刷第 10 页）描述了上位机的电机使能开关，
+§7–11 未定义独立的使能 CAN 帧。ENABLE 1 会报告缺少协议定义。
+完整命令、参数和反馈对应关系见第 2.5 节。
+
+2.3 监听
+
+  "$usb_can" "$serial_dev" monitor 5
+
+监听用 115200、8N1、无流控打开串口，不会发查询。
+分析仪发标准 ID 0x0001、DLC 8、全零数据时，预期终端显示：
+
+  RX 001#0000000000000000 undecoded
+
+这个报文已通过串口封装校验，数据不是可用的 ENCOS 反馈，仍会保留原始字节。
+解析器在输入出现噪声、错误长度或校验失败时重新找帧头，能处理分段和连包。
+先前分析仪实测连续 4 秒收到 40 帧，约 10.00 Hz。刚打开串口捕获过 33 个
+额外字节，稳定后 3 秒收到 30 帧，期间无额外字节。
+
+2.4 单次 ID 查询和只读参数
+
+电机断开、模块仅接分析仪时，由现场操作者先启动分析仪抓包，再执行：
+
+  "$usb_can" "$serial_dev" DISCOVER --allow-query
+
+预期串口写入 AA 07 FF 09 FF FF 00 82 39，分析仪显示标准 ID 0x7FF、
+DLC 4、数据 FF FF 00 82。只有分析仪时，工具可能在 500 ms 后返回 query timed
+out，这表示串口没收到符合查询条件的电机回复。分析仪抓包用于判断发送方向。
+若分析仪主动模拟 ID 1 的发现回复，CAN ID 仍是 0x7FF，数据为 FF FF 01 00 01，
+终端应显示 motor_id=1。已有实物抓包确认了 NUC 发出的查询帧。
+
+开始真实电机查询前，按 AGENTS.md 确认厂家给出的具体型号供电范围、接线和终端。
+数据手册的 72 V 与调试手册的 20–57 V 存在冲突，供电在书面确认前保持禁用。
+获现场只读授权后，可按实际 ID 发单项参数查询。
+下面用已知 ID 1 示意，数字参数使用十进制：
+
+  "$usb_can" "$serial_dev" QUERY 1 VERSION --allow-query
+  "$usb_can" "$serial_dev" QUERY 1 POSITION --allow-query
+
+30 为版本，1 为位置，2 为速度，3 为相电流，29 为 MCU UUID，36 为分段 Kt。
+小写 discover、query 和十进制查询码仍可用。查询 36 额外传组号，如
+QUERY 1 KT_SEGMENT 2 --allow-query。编码、单位及争议项见
+docs/protocol_coverage.md。--allow-query 只白名单放行 ID 发现与手册已确认的参数查询。
+单次请求发送后有界等待、过滤精确回显并匹配回复。失败时不会自动重发。
+串口包不带物理 CAN 硬件时间戳，终端和 ROS 使用主机读取时刻。
+
+2.5 调试手册 CAN 命令对照
+
+以下节号和页码均来自《ENCOS 调试技术手册 V1.19EAP》，页码为印刷页码。
+终端参数 ID、数字型参数代码和组号用十进制。分析仪显示的 CAN ID 与数据
+字节为十六进制。管理命令的帧 ID 固定为 0x7FF，其余发送帧使用电机 ID。
+当前串口链路使用标准经典 CAN 数据帧。
+
+管理                                           终端命令
+  §7.2 p.23 设置当前位置为零点                   ZERO ID [OFFSET_DEG]
+  §7.3 p.24 修改电机 ID                          SET_ID OLD_ID NEW_ID
+  §7.4 p.24 将电机 ID 重置为 1                    RESET_ID
+  §8.1 p.25 查询电机 ID                          DISCOVER
+
+控制                                           终端命令
+  §9.1.1 p.26 力位混控                            MIXED ID KP KD RAD RAD_S NM 加五对范围
+  §9.1.2 p.27 伺服位置                            POS ID DEG [RPM_LIMIT [AMP_LIMIT [ACK]]]
+  §9.1.3 p.27–28 伺服速度                         VEL ID RPM AMP_LIMIT [ACK]
+  §9.1.4 pp.28–29 子模式 0 电流                   CURRENT ID AMP [ACK]
+  同上，子模式 1 力矩                            TORQUE ID NM [ACK]
+  同上，子模式 2 变阻尼制动                       DAMPING ID [ACK]
+  同上，子模式 3 能耗制动                         DISSIPATIVE ID AMP_LIMIT [ACK]
+  同上，子模式 4 再生制动                         REGENERATIVE ID AMP_LIMIT [ACK]
+  同上，子模式 5 电磁抱闸                         ELECTROMAGNETIC_BRAKE ID ENGAGE|RELEASE
+  §9.1.5 p.29 刹车抱闸                            BRAKE ID ENGAGE|RELEASE
+
+MIXED 的五对范围按 KP、KD、位置（rad）、速度（rad/s）、力矩（Nm）排序，
+每对先填最小值再填最大值。第 26 页示例可在分析仪台架输入：
+
+  MIXED 1 20 5 0 0 0 0 500 0 5 -12.5 12.5 -18 18 -30 30
+
+其数据为 01 47 FF 7F FF 7F F7 FF。演示范围来自手册示例，真机须用核验过的范围。
+POS 默认 20 rpm、1 A、ACK 2。其余带可选 ACK 的控制命令默认 ACK 1。
+ACK 0 不请求回复，1–3 对应反馈类型 1–3。MIXED 固定请求类型 1；
+ELECTROMAGNETIC_BRAKE 对应类型 6，BRAKE 对应 B2，两者各用独立报文。
+ENGAGE 为吸合，RELEASE 为释放。第 11 章的位置、速度、电流、力矩示例分别
+使用 POS、VEL、CURRENT、TORQUE。该章混控示例字节存在冲突，采用第 26 页向量。
+
+配置统一输入 CONFIG ID 名称 参数。也可用下表十进制代码替代名称。
+
+  手册章节     代码（十六进制/十进制）   名称                参数
+  §9.2.1      0x01 /  1               ACCELERATION        加速度，0–20 rad/s²
+  §9.2.2      0x02 /  2               COMMUNICATION       0 经典 CAN，1 CAN FD
+  §9.2.3      0x04 /  4               KT                  Nm/A
+  §9.2.4      0x05 /  5               KP_RANGE            KP_MIN KP_MAX
+  §9.2.5      0x06 /  6               KD_RANGE            KD_MIN KD_MAX
+  §9.2.6      0x07 /  7               POSITION_RANGE      MIN MAX，rad
+  §9.2.7      0x08 /  8               VELOCITY_RANGE      MIN MAX，rad/s
+  §9.2.8      0x09 /  9               TORQUE_RANGE        MIN MAX，Nm
+  §9.2.9      0x0A / 10               CURRENT_RANGE       MIN MAX，A
+  §9.2.10     0x0B / 11               TIMEOUT             超时时间，ms
+  §9.2.11     0x0C / 12               CURRENT_PI          KP KI
+  §9.2.12     0x0D / 13               VELOCITY_PI         KP KI
+  §9.2.13     0x0E / 14               POSITION_PD         KP KD
+  §9.2.14     0x0F / 15               KT_CALIBRATION      0 关闭，1 单表，2 双表
+  §9.2.15     0x10 / 16               KT_SEGMENT          GROUP KT1 KT2 KT3 KT4
+  §9.2.16     0x11 / 17               ZERO_OFFSET         零位偏置角，度
+
+组号为 1–10，每组四个 Kt，单位 Nm/A。CONFIG 1 ACCELERATION 20 使用正文
+定义的 ACK=1，数据为 C1 01 07 D0。手册示例 C0 01 07 D0 的 ACK=0 行为
+未说明，终端使用 ACK=1。TIMEOUT 设为 0 会关闭 CAN 超时保护。
+切换通信模式重启后生效，当前 USB‑CAN 的 FD 封装待确认。会话在发出通信模式、
+零点、ID 设置或 ID 重置后会留出 500 ms。操作真实电机前按 AGENTS.md 核验。
+
+§9.3 p.38 参数查询统一输入 QUERY ID 名称。也可输入下表十进制代码。
+下表的回复对应 §10.5 pp.41–42，普通查询数据为 E1 加代码的一字节十六进制值。
+
+  代码  名称                回复内容
+    1   POSITION            位置，CLI 转为 rad
+    2   VELOCITY            速度，CLI 转为 rad/s
+    3   PHASE_CURRENT       相电流，A
+    4   POWER               功率值，手册未区分输入或输出
+    5   ACCELERATION        加速度原始 u16，回复表未注明倍率
+   22   KT                  转矩系数，Nm/A
+   23   KP_RANGE            KP 范围
+   24   KD_RANGE            KD 范围
+   25   POSITION_RANGE      位置范围，rad
+   26   VELOCITY_RANGE      速度范围，rad/s
+   27   TORQUE_RANGE        力矩范围，Nm
+   28   CURRENT_RANGE       相电流范围，A
+   29   UUID                3 帧，每帧一个编号和 4 字节
+   30   VERSION             硬件版本 3 字节，软件版本 3 字节
+   31   TIMEOUT             CAN 超时，ms
+   32   CURRENT_PI          电流环 KP、KI
+   33   VELOCITY_PI         速度环 KP、KI
+   34   POSITION_PD         位置环 KP、KD
+   35   KT_CALIBRATION      查询枚举 1 关闭、2 单表、3 双表
+   36   KT_SEGMENT          QUERY ID KT_SEGMENT GROUP，回复为 EE 分段数据
+   37   BRAKE               0 吸合，1 释放
+   38   ZERO_OFFSET         偏置角，CLI 转为 rad
+   39   ENCODER             校准标志和两路角度原码
+
+查询 36 的请求首字节为 0xE0 或上组号，例如 QUERY 1 KT_SEGMENT 2 发 E2 24。
+UUID 的每帧在会话内显示 uuid_part 和 uuid_bytes。需要拼成完整 12 字节时，
+使用第 2.4 节的匹配入口，命令末尾带 --allow-query。
+
+反馈章节                       终端显示
+  §7.2–8.1 管理反馈             management、status、motor_id（报文有该字段时）
+  §10.1 类型 1                 量化位置、速度、相电流原码，电机和 MOS 温度
+  §10.2 类型 2                 位置 rad、相电流 A、电机温度 °C
+  §10.3 类型 3                 速度 rad/s、相电流 A、电机温度 °C
+  §10.4 类型 4                 config、status、fault
+  §10.5 类型 5                 query、fault、查询值（分段 Kt 使用 EE 格式）
+  §10.6 类型 6                 电磁抱闸状态和故障码
+  §9.1.5 B2                    刹车抱闸状态
+  §9.2 FF FE                   config_echo、配置回显值
+  §9.2.15 EE                   Kt_header、可确认的组号和四个系数
+
+通信模式 FF FE 02 回显的长度标题与字段表冲突，仅显示原帧及 ambiguous。
+Kt 的 EE 头字段位宽有两种写法，终端保留原值，只有两种写法一致时显示组号。
+类型 1 依赖型号和固件量化范围，CLI 在缺少该范围时显示原码。
+故障号 0–7 对应无错、过热、过流、过压、欠压、编码器错误、制动过压、驱动错误。
+完整位域及原稿疑点见 docs/protocol_coverage.md 和 docs/issues.md。
+
+2.6 从工程根目录运行 demo
+
+先按第 1 节编译。已按第 1.2 节安装时，在工程根目录执行：
+
+  ./install/usb/encos_tools/lib/encos_tools/encos_usb_can /dev/ttyUSB0
+
+只用 C++ 构建时，改用 ./build/native/install/lib/encos_tools/encos_usb_can。
+分析仪台架保持电机断开。打开分析仪抓包，标准 CAN，速率与适配器一致，
+通常按手册设 1 Mbit/s。在出现 Listening on 后输入下列命令：
+
+  输入                          分析仪应收到（CAN ID / DLC / 数据）
+  DISCOVER                      0x07FF / 4 / FF FF 00 82
+  QUERY 1 VERSION               0x0001 / 2 / E1 1E
+  POS 1 30                      0x0001 / 8 / 28 3E 00 00 00 32 00 2A
+  CONFIG 1 ACCELERATION 20      0x0001 / 4 / C1 01 07 D0
+
+再让分析仪发送以下标准帧。控制台无需再输入任何命令就会打印 RX：
+
+  分析仪发送（CAN ID / DLC / 数据）                       终端字段示例
+  0x07FF / 5 / FF FF 01 00 01                             management=discover status=success motor_id=1
+  0x0001 / 8 / A0 1E 01 02 03 04 05 06                   query=30，硬件 1 2 3，软件 4 5 6
+  0x0001 / 8 / 40 41 F0 00 00 00 00 64                   type=2，position_rad=0.523599，motor_c=25
+  0x0001 / 5 / FF FE 01 07 D0                             config_echo=1 value=20
+
+输入 EXIT 返回 Bash。无需硬件的回归演示也可在工程根目录执行：
+
+  ctest --test-dir build/usb/encos_tools -R '^encos_usb_can_cli$' --output-on-failure
+
+用独立 CMake 构建时，将测试目录换为 build/native/tools。用例通过伪终端
+检查每条命令的真实串口写入、示例接收帧的解码和空闲收帧。
+
+3. 可选 ROS 2 状态节点
+-------------------
+
+ROS 节点和 CLI 二选一占用同一串口。先加载第 1.2 节环境。
+
+  ros2 run encos_driver encos_usb_can_node --ros-args \
+    -p device:="$serial_dev" -p motor_id:=1
+
+默认只监听。可以分别在其他终端查看原始帧和解码状态：
+
+  ros2 topic echo --qos-reliability best_effort /encos/raw_rx encos_msgs/msg/RawFrame
+  ros2 topic echo --qos-reliability best_effort /encos/motor_state encos_msgs/msg/MotorState
+
+全零测试帧出现在 raw_rx。motor_state 只发布可解码的反馈，以及匹配成功的
+位置、速度、相电流查询结果。只使用 valid 为真的字段。Type 1 的位置、速度和
+相电流依赖核验过的量化范围，这条简化主链路尚未加载实际范围，仍按无效发布。
+估算力矩也不会从未知 Kt 推导。USB 串口断开后会发布断连状态。
+
+现场获得只读授权时，关闭上面节点后使用：
+
+  ros2 run encos_driver encos_usb_can_node --ros-args \
+    -p device:="$serial_dev" -p motor_id:=1 -p allow_queries:=true
+
+  ros2 service call /encos/discover_motor encos_msgs/srv/DiscoverMotor '{}'
+  ros2 service call /encos/read_parameter encos_msgs/srv/ReadParameter '{code: 1}'
+
+discover 返回发现的 ID。节点的目标 ID 由 motor_id 参数指定，启动后固定。
+服务响应返回匹配结果、参数值和原始帧。设备协议没有事务序列号。相同应答
+签名在本节点会话内只用一次，超时或已结算后都不自动发第二次。新会话应由
+操作者确认无遗留在途回复。需要持续重复查询时，应先验证设备应答寿命，
+再设置允许复用的窗口。
+
+4. 串口实现如何工作
+------------------
+
+MotorToolV1.24.zip 是厂商原始上位机包。可使用 unzip 和 binutils 查看证据，
+无需运行 EXE。下面命令在项目根目录执行：
+
+  mkdir -p build/motortool-static
+  unzip -p MotorToolV1.24.zip MotorToolV1.24/MotorTool.exe > build/motortool-static/MotorTool.exe
+  objdump -dw -M intel --start-address=0x403948 --stop-address=0x403999 build/motortool-static/MotorTool.exe
+  objdump -dw -M intel --start-address=0x403a63 --stop-address=0x403a77 build/motortool-static/MotorTool.exe
+  objdump -dw -M intel --start-address=0x40ebf0 --stop-address=0x40ec5c build/motortool-static/MotorTool.exe
+
+串口包为 AA、两字节大端 CAN ID、包总字节数、CAN 数据、累加校验。
+校验取前面全部字节之和的低 8 位。分析仪发 ID 1、DLC 8、全零数据时，
+已实测 NUC 收到 AA 00 01 0D 00 00 00 00 00 00 00 00 B8。
+总长度 0D 等于 DLC 8 加串口封装的 5 字节。
+
+serial_can_transport.cpp 持有串口文件描述符，负责流式拆包、校验和只读发送
+白名单，退出时恢复原参数。CLI 和 ROS 节点共享 Protocol 与 TransactionManager，
+因此电机协议只实现一次。旧版 EXE 里出现的 E0 01 属于旧位置查询例，当前
+电机协议继续按 V1.19EAP 的 E1 01 示例执行。已知封装没有 CAN FD/BRS 标志，
+当前 USB 入口使用经典标准帧表示，实物 FD+BRS 留待验证。
+
+5. 自动回归
+-----------
 
   bash scripts/run_offline_tests.sh
 
-在新的 Bash 中加载 Jazzy，再构建全部五个包。
+编译并加载第 1.2 节的 ROS 2 环境后，可运行全量测试。若本机已有其他 ROS
+会话，可给这轮测试单独设一个 ROS_DOMAIN_ID。
 
-  source /opt/ros/jazzy/setup.bash
-  colcon build --base-paths src --build-base build/p2 --install-base install/p2 \
-    --packages-select encos_core encos_msgs encos_tools encos_experiments encos_driver \
-    --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON
-  source install/p2/local_setup.bash
+  export ROS_DOMAIN_ID=111 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+  colcon --log-base build/colcon-test-log test --base-paths src --build-base build/usb \
+    --install-base install/usb --event-handlers console_direct+ --return-code-on-test-failure
+  colcon --log-base build/colcon-test-log test-result --test-result-base build/usb --verbose
 
-确认构建输出报告五个包完成。检查本工作区的可执行程序和消息定义。
+预期 13 项全部通过。自动测试使用纯 C++ 协议向量、MockTransport 或 Linux
+伪终端。串口用例验证分段、连包、坏校验、回显、超时、只读限制和状态发布。
+命令行用例从伪终端另一端读取实际写入的字节，与手册向量逐项对照，
+核对持续会话在首次命令之前、发送后和再次空闲时都能收帧，并验证回显标记、
+非法命令无写入及只读查询的应答匹配。
+整个过程不需要 CAN 网卡或连接电机。
 
-  ros2 pkg executables encos_driver
-  ros2 pkg executables encos_tools
-  ros2 pkg executables encos_experiments
-  ros2 interface show encos_msgs/msg/MotorCommand
+6. 可选录包、接收频率分析和轨迹库
+----------------------------
 
-2. 自动验证 P0、P1、P2
------------------------
+在第 3 节节点运行时启动录包。每次使用一个新的盘上路径，录完按 Ctrl+C 刷盘。
 
-在已加载 Jazzy 和本工作区的终端，从根目录运行。命令在独立用户和网络
-命名空间中建立 vcan0，自动启动测试所需进程，最后删除该命名空间中
-的 vcan0。执行时无需在其它终端启动驱动或虚拟电机。
+  ros2 launch encos_driver record.launch.py output:=data/usb_can_run_01
+  ros2 bag info data/usb_can_run_01
+  ros2 run encos_experiments export_samples.py data/usb_can_run_01 data/raw_01.csv --topic /encos/raw_rx
+  ros2 run encos_experiments export_samples.py data/usb_can_run_01 data/state_01.csv --topic /encos/motor_state
 
-  unshare --user --map-root-user --net bash -ec '
-    ip link set lo up
-    scripts/setup_vcan.sh ensure vcan0
-    trap "scripts/setup_vcan.sh clean vcan0" EXIT
-    export ROS_DOMAIN_ID=111 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
-    export ENCOS_TEST_VCAN=vcan0 ENCOS_TEST_ADMIN=1
-    export ENCOS_P2_LOGS="$PWD/logs/tutorial/ros-integration"
-    colcon test --base-paths src --build-base build/p2 --install-base install/p2 \
-      --event-handlers console_direct+ --return-code-on-test-failure
-    colcon test-result --test-result-base build/p2 --verbose
-    scripts/test_vcan_processes.sh install/p2/encos_tools/lib/encos_tools \
-      logs/tutorial/p1-processes vcan0
-  '
+状态 CSV 需要袋内确有可解码的电机状态。若只发全零测试帧，使用原始帧 CSV。
+分析仪以 10 Hz 发 0x0001 时，可检查该 ID 的接收频率和主机接收间隔：
 
-预期结果
+  ros2 run encos_experiments analyze_timing.py data/raw_01.csv --rx --hz 10 --can-id 0x0001
 
-  P0  8 项。原始报文、位域和缩放、反馈有效性、参数编码、非法帧、
-      过期事务及安全状态机等测试通过。
-  P1  2 项。虚拟电机模型与经典 CAN、CAN FD+BRS 的 SocketCAN 集成通过。
-      独立进程脚本在两种帧型下验证查询、受限位置、故障退出及重启。
-      脚本中的 “Killed” 来自故意终止虚拟电机的用例，查看随后 PASS。
-  P2  3 项。ROS 消息映射、轨迹及两种帧型的端到端测试通过。覆盖已确认
-      的控制模式、查询与写入/读回、超时、丢帧、温度、UUID、故障锁存、
-      Action 取消及驱动退出。具体进程日志保存在 logs/tutorial/ 下。
-  汇总应为 13 tests, 0 errors, 0 failures, 0 skipped。
-
-若 unshare 或 vcan 初始化失败，请保留错误输出。系统未允许创建私有用户
-命名空间时，可由管理员准备仅供本次测试的 vcan0，再直接在同一 Bash
-中设置上面的 ROS_DOMAIN_ID、ROS_AUTOMATIC_DISCOVERY_RANGE、
-ENCOS_TEST_VCAN、ENCOS_P2_LOGS，执行 colcon 和独立进程测试命令。
-ENCOS_TEST_ADMIN=1 仅用于允许关停该专用接口的有权限测试 shell。
-没有可用 vcan 时，可执行第 1 节的离线测试，虚拟链路验收待补。
-
-3. 多终端启动和观察
----------------------
-
-使用多个普通终端时，先由操作者在这些终端共享的网络命名空间准备本次
-演示专用的 vcan0。若接口已经由管理员创建，直接执行 check 即可。
-
-  sudo modprobe vcan
-  sudo scripts/setup_vcan.sh ensure vcan0
-  scripts/setup_vcan.sh check vcan0
-
-每个终端都从工程根目录运行以下四行。
-
-  source /opt/ros/jazzy/setup.bash
-  source install/p2/local_setup.bash
-  export ROS_DOMAIN_ID=112
-  export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
-
-终端 A 启动驱动和单个虚拟电机。正常启动时驱动处于 UNARMED。
-
-  ros2 launch encos_driver vcan.launch.py interface:=vcan0 fd:=true frequency:=400 raw:=true
-
-经典 CAN 把 fd:=true 改为 fd:=false。若要把两个进程分开，在驱动的
-launch 命令加 virtual_motor:=false，然后在另一终端运行以下命令。
-驱动用 fd:=false 时，虚拟电机参数也改为 classic。
-
-  ros2 run encos_tools encos_virtual_motor vcan0 fd --bootstrap-beacon
-
-终端 B 抓包。没有 candump 时，可用下面自带的观察器。
-
-  candump -L -x vcan0
-
-  ros2 run encos_tools encos_bus_monitor vcan0 fd
-
-终端 C 查询。终端 B 应看到 ID 0x7FF 的请求 FF FF 00 82 和回复
-FF FF 01 00 01。FD+BRS 帧在紧凑格式中使用“##”，其后的标志位
-包含 BRS 位 0x1。ROS 原始帧也应显示 brs: true。
-
-  ros2 service call /encos/discover_motor encos_msgs/srv/DiscoverMotor '{}'
-  ros2 service call /encos/get_profile encos_msgs/srv/GetProfile '{}'
-  ros2 service call /encos/read_parameter encos_msgs/srv/ReadParameter '{code: 29}'
-  ros2 service call /encos/read_parameter encos_msgs/srv/ReadParameter '{code: 36, group: 2}'
-
-  ros2 topic echo --once --no-daemon --qos-reliability best_effort \
-    /encos/motor_state encos_msgs/msg/MotorState
-  ros2 topic echo --once --timeout 5 --no-daemon --qos-reliability best_effort \
-    /encos/raw_rx encos_msgs/msg/RawFrame
-
-/encos/raw_rx 只在有报文时发布。可先让 echo 等候，再从其它终端发查询。
-若 5 秒内没有看到原始帧，先确认 raw:=true，再重试。
-发现结果预期 success=True、motor_id=1。查询 29 返回 UUID，查询 36 返回
-指定的 Kt 组。观察到反馈时，只有 valid 为 true 的测量字段可以使用。
-
-4. 验证 Topic、Action、写入保护和故障恢复
-------------------------------------------
-
-若要同时保存数据，请先按第 5 节启动记录。下面各控制示例逐条执行。
-前一个任务停发后，等 GetProfile 的 state.safety_state 回到 UNARMED
-（值 1），再开始下一项。
-
-4.1 用 Topic 控制位置、速度和混控
-
-  ros2 run encos_experiments virtual_control.py position 0.10 \
-    --owner 7 --seconds 2 --arm-virtual --stop-on-exit
-  ros2 run encos_experiments virtual_control.py velocity 0.10 \
-    --owner 7 --seconds 1 --arm-virtual --stop-on-exit
-  ros2 run encos_experiments virtual_control.py mixed 0.05 \
-    --owner 7 --seconds 1 --arm-virtual --stop-on-exit
-
-控制脚本先显式申请软件授权，再发布带时间戳的有限序列，结束时调用 Stop。
-位置和速度参数分别使用 rad 和 rad/s。在另一个终端运行下列命令观察
-归属、反馈类型、时间戳和采样速率。hz 在空闲时无控制样本，应在控制前
-就启动并观察运行区间。
-
-  ros2 topic echo --once --no-daemon --qos-reliability reliable \
-    /encos/control_sample encos_msgs/msg/ControlSample
-  ros2 topic hz /encos/control_sample --spin-time 2
-
-4.2 有限 Action 和取消
-
-在终端 C 先授权，再提交正弦位置目标。等待完成可看到 SUCCEEDED。
-若要验证取消，看到 Goal accepted 和连续进度后，在另一个终端立即执行
-最后一条命令。每个新任务都重新申请授权。
-
-  ros2 service call /encos/arm encos_msgs/srv/Arm '{authority: 3, owner: 7, confirm: true}'
-  ros2 action send_goal --feedback /encos/run_experiment encos_msgs/action/RunExperiment \
-    '{owner: 7, mode: 1, shape: 2, duration_s: 6.0, offset: 0.0, amplitude: 0.04, start_hz: 1.0, speed_limit_rad_s: 0.6, current_limit_a: 1.0, feedback: 1}'
-
-  ros2 service call /encos/run_experiment/_action/cancel_goal action_msgs/srv/CancelGoal '{}'
-
-预期取消回应列出 goals_canceling，终端 C 显示 CANCELED。shape 的 0、1、
-2、3 分别为保持、阶跃、正弦和线性扫频。mode 为 1 时运行位置轨迹，
-为 2 时运行速度轨迹。Action 的完整轨迹测试随第 2 节运行。
-
-4.3 只在虚拟端验证写入和其它模式
-
-默认启动时 WriteParameter 即使收到 confirm: true 也应拒绝。使用 Stop
-并确认虚拟电机已停止，关闭终端 A 的 launch，再用下列命令重新启动。
-如用独立虚拟电机，保持同一帧型，并且只运行一个虚拟电机进程。
-
-  ros2 launch encos_driver vcan.launch.py interface:=vcan0 fd:=true frequency:=400 \
-    raw:=true allow_writes:=true additional_virtual_modes:=true
-
-回到控制终端，逐项测试写入、读回及短时电流模式。
-
-  ros2 service call /encos/write_parameter encos_msgs/srv/WriteParameter \
-    '{code: 11, value: {kind: 1, values: [480.0, 0.0, 0.0, 0.0]}, confirm: true}'
-  ros2 service call /encos/read_parameter encos_msgs/srv/ReadParameter '{code: 31}'
-  ros2 run encos_experiments virtual_control.py current 0.03 \
-    --owner 8 --seconds 0.2 --arm-virtual --stop-on-exit
-
-预期写入回应同时报告 success=True 和 acknowledged=True，读回首个
-数值为 480 ms。第 2 节还验证 ID、零点、抱闸、范围、PID、Kt，以及
-力矩、变阻尼、能耗、再生、电磁抱闸模式。加速度和通信模式写入仍封锁。
-
-4.4 故意让目标过期
-
-待虚拟电机回到 UNARMED，使用下面命令只发一次有效期 100 ms 的目标。
-驱动可以在这 100 ms 内采样同一目标，过期后停止并锁存故障。
-
-  ros2 service call /encos/arm encos_msgs/srv/Arm '{authority: 2, owner: 7, confirm: true}'
-  ros2 topic pub --once --qos-reliability best_effort /encos/motor_command encos_msgs/msg/MotorCommand \
-    '{header: auto, valid_for: {nanosec: 100000000}, motor_id: 1, owner: 7, mode: 1, position_rad: 0.05, speed_limit_rad_s: 0.5, current_limit_a: 1.0, feedback: 2}'
-  ros2 topic echo --once --timeout 5 --no-daemon --qos-reliability reliable \
-    --qos-durability transient_local --filter 'm.latched and m.safety_state == 6' \
-    /encos/fault encos_msgs/msg/MotorFault
-
-预期 latched: true、safety_state: 6。复位后控制权仍为空，需要重新授权。
-
-  ros2 service call /encos/reset_fault encos_msgs/srv/ResetFault '{confirm: true}'
-  ros2 service call /encos/get_profile encos_msgs/srv/GetProfile '{}'
-
-5. rosbag2、CSV 和关闭
------------------------
-
-在一个已加载环境的额外终端，从根目录启动记录。在 ROS 发现并订阅
-/encos/control_sample 后，再运行第 4 节中任一正常 Topic 或 Action。
-下面使用新目录，重复运行时更换后缀。
-
-  mkdir -p logs/tutorial
-  ros2 launch encos_driver record.launch.py output:=logs/tutorial/demo_bag_01
-
-在控制终端调用 Stop，检查虚拟电机已停。已经在故障状态时，Stop 保留
-锁存，仍须按第 4.4 节显式复位。Stop 是软件停发操作。
-
-  ros2 service call /encos/stop encos_msgs/srv/Stop '{}'
-  ros2 service call /encos/get_profile encos_msgs/srv/GetProfile '{}'
-
-到录包终端按 Ctrl+C，等 rosbag2 写完缓存并退出。然后验证统计与导出。
-
-  ros2 bag info logs/tutorial/demo_bag_01
-  ros2 run encos_experiments export_samples.py \
-    logs/tutorial/demo_bag_01 logs/tutorial/demo_01.csv
-  ros2 run encos_experiments analyze_timing.py logs/tutorial/demo_01.csv --hz 400
-
-bag 中 /encos/control_sample 的消息数应大于零，并与导出的样本数一致。
-CSV 每行是一条样本。看实际间隔可用 previous_cycle_interval_ns，作
-延迟和抖动比较时使用同一单调时钟的字段。解析缺失值时查看对应
-*_valid。相电流单位为 A，输出力矩字段为估算值，单位为 Nm。
-
-最后 Ctrl+C 关闭观察器、驱动和虚拟电机。若第 3 节是你创建的专用
-vcan0，退出所有进程后由创建者手动删除。
-
-  sudo scripts/setup_vcan.sh clean vcan0
-
-6. 可选性能复验
----------------
-
-退出第 3 节启动的所有节点后，再在工作区根目录从已加载环境的 Bash
-运行。测试脚本会自己启动专用虚拟电机和驱动。下例分别复验经典 CAN 的
-50 Hz C 工况和 FD+BRS 的 50 Hz D 工况，检查 bag 样本无缺失。
-
-  unshare --user --map-root-user --net bash -ec '
-    ip link set lo up
-    scripts/setup_vcan.sh ensure vcan0
-    trap "scripts/setup_vcan.sh clean vcan0" EXIT
-    export ROS_DOMAIN_ID=113 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST ENCOS_TEST_VCAN=vcan0
-    /usr/bin/python3 tests/integration/run_p2_performance.py \
-      classic logs/tutorial/perf_classic_01 --rates 50 --scenarios C
-    /usr/bin/python3 tests/integration/run_p2_performance.py \
-      fd logs/tutorial/perf_fd_01 --rates 50 --scenarios D
-  '
-
-脚本要求输出目录尚不存在。去掉 --rates 和 --scenarios 会按每种帧型
-运行 10、50、100、200、400 Hz 的全部 A–E 工况。400 Hz 每况预定 61 秒。
-查看 summary.json 的 status、feedback_hz、timeouts 和 bag_missing_samples。
-samples.csv、source.csv 和 bag_samples.csv 保存逐条数据，按工况生成。
-如需复验纯 SocketCAN 性能，可在同样的专用 vcan shell 中运行：
-
-  scripts/run_vcan_benchmark.sh install/p2/encos_tools/lib/encos_tools \
-    logs/tutorial/p1_benchmark_01 vcan0
-
-P1 基准涵盖 10–1000 Hz。vcan 的频率、RTT 和抖动只反映本机虚拟链路。
-性能验收和 ASan/UBSan 复验的命令、参数及历史失败记录见 docs/reports/P2.md。
+该结果使用主机串口接收时刻。没有序号或发送端时刻时，可统计接收速率和间隔，
+无法由此计算往返延迟或准确丢包率。历史 ControlSample 录包和 CSV 仍可用原命令
+导出及分析。Action 接口和独立轨迹库保留作为代码接口，当前只读节点不提供运动
+执行入口。构建和回归记录放 build/，按需录制的数据放 data/。

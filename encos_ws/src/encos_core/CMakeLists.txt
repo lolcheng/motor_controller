@@ -13,7 +13,7 @@ add_library(encos_core
   src/protocol_commands.cpp
   src/protocol_feedback.cpp
   src/safety_manager.cpp
-  src/socketcan_transport.cpp
+  src/serial_can_transport.cpp
   src/transaction_manager.cpp
 )
 target_compile_features(encos_core PUBLIC cxx_std_17)
@@ -26,7 +26,7 @@ target_include_directories(encos_core PUBLIC
 )
 
 if(BUILD_TESTING)
-  foreach(suite IN ITEMS bit_codec command_vectors feedback parameters invalid_frames timeouts safety transport)
+  foreach(suite IN ITEMS bit_codec command_vectors feedback parameters invalid_frames timeouts safety transport serial_can)
     add_executable(test_${suite} test/test_${suite}.cpp)
     target_link_libraries(test_${suite} PRIVATE encos_core)
     target_compile_options(test_${suite} PRIVATE -Wall -Wextra -Wpedantic)
@@ -42,9 +42,6 @@ install(TARGETS encos_core EXPORT encos_coreTargets
 )
 install(DIRECTORY include/encos_core DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
   FILES_MATCHING PATTERN "*.hpp"
-  PATTERN "control_loop.hpp" EXCLUDE
-  PATTERN "motor_session.hpp" EXCLUDE
-  PATTERN "trace.hpp" EXCLUDE
 )
 
 # Standalone CMake works without ROS. Ament exports the same library in Jazzy.
